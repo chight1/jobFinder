@@ -1,0 +1,12 @@
+# Environment
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# Run-time data: database, raw page cache, GeoNames, logs
+data/
+
+# Generated application packets and personal resumes
+packets/
+profile/resumes/

@@ -1,0 +1,445 @@
+# Job Hunt Pipeline
+
+Oct 7, 2026 
+
+A Python program collects job postings every night, cuts the ones the candidate can't take using plain code and a local language model, scores the rest with a fixed formula, and serves the sorted list as a local web page. Each job is processed once, and nothing in it is company-specific.
+
+**Pipeline at a glance**
+
+1. Collect, nightly: new postings from 61 sources and every company board found
+2. Dedupe: one job, many sightings
+3. Code rules: clear cases the candidate can't take go to the removed pile
+4. Extract with the local model: facts only, once per job
+5. Fact rules: the remaining cases the candidate can't take go to the removed pile
+6. Score by formula: top 20 ordered by pairwise comparison
+7. List page: every kept job, best first, new ones on top
+8. Apply: a packet drafted for each job marked apply
+
+Each job goes down this path once, the night it first appears. Code rules cut the clear cases before the model reads anything; fact rules cut the rest once the model has read the posting. Every removed job waits in the removed pile with its rule and quote.
+
+## Components and tech
+
+Python 3.12, one package named jobhunt, one SQLite file and one command-line entry point. Python fits because its scraping libraries are mature and the candidate already knows it.
+
+| Module | Job | Libraries |
+| --- | --- | --- |
+| cli | Commands: init, nightly, collect, discover, process, rescore, reextract, packet, serve | standard library |
+| config | Reads config.toml (settings, weights, schedule) and profile.toml (the candidate's skills, pay floor, commutable cities) | tomllib |
+| db | Schema, migrations, queries. SQLite in WAL mode (write-ahead logging), so the list page can read while the nightly run writes | sqlite3 |
+| fetch | The only door to the network: per-site rate limits, retries, backoff, raw-page cache | httpx |
+| collectors | One module per collector type, all with the same interface | httpx, selectolax, feedparser |
+| browser | The three browser-only sites | Playwright with headless Chromium |
+| discover | Finds company boards in the Common Crawl index | httpx |
+| rules | Code removal rules and the queue score | GeoNames city and country lists |
+| dedupe | Merges sightings into jobs | datasketch (MinHash) |
+| llm | Talks to the local model and validates its output | httpx, pydantic |
+| score | Formula scoring and the comparator | standard library |
+| web | The list page | FastAPI, Jinja2, uvicorn |
+| packets | Application packets | llm |
+
+**Files on disk**
+
+- data/jobhunt.db: the database
+- data/raw/SOURCE/HASH.html.gz: saved raw responses
+- data/geonames/: city and country lists
+- profile/resumes/: resume versions in Markdown
+- packets/JOB_ID.md: generated application packets
+- config.toml, profile.toml, and sources.csv, built from the Source list at the end of this doc
+
+## Data model
+
+One SQLite file. A **sighting** is one place a posting was seen; a **job** is the real position behind one or more sightings.
+
+| Table | Columns | Holds |
+| --- | --- | --- |
+| sources | id (slug), name, collector, config (JSON), enabled, min_delay_s, daily_cap, backoff_until, fail_streak, cursor, last_run_at, last_status | One row per source from sources.csv |
+| companies | id, ats, slug, extra (JSON: Workday host, tenant, site), found_via, tier, last_checked_at, last_job_count, dead_streak | One row per company board on a hiring system |
+| sightings | id, source_id, external_id, url (canonical, unique), title, company_raw, location_raw, posted_at, description, desc_hash, source_fields (JSON), first_seen_at, last_seen_at, miss_streak, closed_at, job_id | One row per place a posting was seen |
+| jobs | id, company_norm, title_norm, city_norm, primary_sighting_id, stage, removal_rule, removal_quote, prescore, facts (JSON), prompt_version, score, score_parts (JSON), reason_line, badges, status, status_at, follow_up_on, first_seen_at, closed_at | One row per real position |
+| dupe_pairs | job_a, job_b, title_sim, desc_sim, verdict, decided_by | Borderline duplicates waiting for the model |
+| comparisons | job_a, job_b, winner, why, prompt_version, decided_at | Comparator results, never asked twice |
+| company_aliases | alias_norm, company_norm | Hand-kept company name aliases |
+| fetch_log | source_id, url, status, bytes, ms, at, error | Every request, for politeness and health |
+| runs | id, started_at, ended_at, counts (JSON) | One row per nightly run |
+| packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
+| settings | key, value | Last list visit, current crawl id |
+
+**Job stage** moves one way: new → code_removed, or queued → extracted → removed or kept. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
+
+**Job status** is the candidate's: none, apply, applied, interviewing, rejected, ghosted, not_interested.
+
+**Indexes:** sightings(url) unique; sightings(source_id, external_id); jobs(stage, prescore) for the model queue; jobs(score) for the list; companies(ats, slug) unique.
+
+## The nightly run
+
+The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobhunt nightly" at 01:00. Two workers share the database and run side by side: the fetch worker uses the network, the model worker uses the processor.
+
+**Fetch worker, 01:00 to 05:00.** At 05:00 it stops; each source saves its cursor and resumes there the next night.
+
+1. Pick the sources and boards that are due (board tiers decide which boards).
+2. Collect new postings only (see Collectors).
+3. Run the code rules on each new sighting. Survivors without a description get one detail fetch.
+4. Dedupe levels 1 and 2: attach to an existing job or create a new one.
+5. New jobs that pass the code rules enter the model queue with their prescore.
+6. Once a week: liveness checks on open kept jobs.
+
+**Model worker, 01:00 to 07:30.** It starts no new call after 07:30 and always takes the highest-priority work first:
+
+1. Packets for jobs the candidate marked apply
+2. Borderline duplicate pairs
+3. Extraction of queued jobs, highest prescore first
+4. Comparator calls for jobs that entered the top 20
+
+**At 07:30:** removal rules on the night's new facts, formula scoring, closed-job marking, and the run summary. The list page shows the result when the candidate opens it.
+
+**The first night is bigger.** Everything open is new, so the first pull and the first extraction backlog spread over several nights, each continuing where the last stopped.
+
+**By hand, any time:** "jobhunt process --minutes 60" runs the model worker; "jobhunt collect --source NAME" runs one source; "jobhunt packet JOB_ID" drafts one packet now; "jobhunt rescore" re-applies the formula in seconds, with no model calls.
+
+## Fetching and politeness
+
+Every request goes through the fetch module, so these rules hold everywhere.
+
+| Rule | Value |
+| --- | --- |
+| Requests at once per site | 1 |
+| Gap between requests, HTML sites | 4 s, plus 0–2 s random |
+| Gap between requests, hiring-system APIs | 1 s, plus 0–0.5 s random |
+| Sites fetched in parallel | up to 6, never two on the same site |
+| Timeout | 30 s |
+| Stated limits | Remotive: 4 calls a day; startup.jobs: 20 a minute |
+| The same page twice in one night | never: the raw cache answers |
+| Feeds | conditional requests (ETag and Last-Modified headers), so an unchanged feed costs one tiny reply |
+| Logins | never |
+
+**When a site pushes back:**
+
+1. A 429 ("too many requests") or a 503: wait for the Retry-After header, or 60 s, and retry at most twice.
+2. Still failing, a 403 ("forbidden"), or a challenge page (detected by markers such as "captcha" or "Just a moment" in the body): stop that source for the night. Set backoff_until to the next night, double its gap (up to 30 s), and add 1 to fail_streak.
+3. A fail_streak of 3 disables the source and flags it on the health view until the candidate turns it back on.
+4. A clean night resets fail_streak, and the gap halves back toward its default.
+5. No rotating addresses or other ways around a block. A blocked source waits.
+
+## Collectors
+
+Every collector has the same two calls and never touches the database. A runner does the bookkeeping around them.
+
+- **list_postings(source, cursor)** returns summaries (external id, link, title, company, location, posted date, and the description when the list carries it), the ids it saw, and the next cursor.
+- **fetch_detail(summary)** returns the full description. The runner calls it only for new postings that passed the code rules and arrived without a description.
+
+The runner compares the returned ids with the database: new ids become sightings, known ids get last_seen_at, and for whole-list sources, known ids that were missing get miss_streak + 1.
+
+| Collector | Request | Paging | Detail fetch | Closed when |
+| --- | --- | --- | --- | --- |
+| Greenhouse | GET boards-api.greenhouse.io/v1/boards/SLUG/jobs | none: whole board | GET …/jobs/ID for new jobs | missing 2 checks in a row |
+| Lever | GET api.lever.co/v0/postings/SLUG?mode=json | none | none: the list is complete | missing 2 checks in a row |
+| Ashby | GET api.ashbyhq.com/posting-api/job-board/SLUG?includeCompensation=true | none | none | missing 2 checks in a row |
+| Workable | GET apply.workable.com/api/v1/widget/accounts/SLUG?details=true | none | none | missing 2 checks in a row |
+| SmartRecruiters | GET api.smartrecruiters.com/v1/companies/ID/postings?limit=100&offset=N | offset | GET …/postings/POSTING_ID | missing 2 checks in a row |
+| Workday | POST HOST/wday/cxs/TENANT/SITE/jobs with limit 20, offset N, empty search text | offset | GET HOST/wday/cxs/TENANT/SITE plus the job's path | missing 2 checks in a row |
+| HRMOS, Talentio | GET the public job list page | page links | GET the job page | missing 2 checks in a row |
+| RSS feeds | GET the feed | none | when the feed's text is under 500 characters | liveness check |
+| JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, startup.jobs) | GET with the API's Japan, Asia or worldwide filter where it has one | the API's own paging, newest first | rarely | liveness check |
+| Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting | 60 days after the thread |
+| Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page | liveness check |
+| Browser sites (LinkedIn, CareerCross, Wellfound) | Playwright loads list pages; LinkedIn's guest search with location Japan and "posted in the last 24 hours" | until no new ids, or LinkedIn's cap near 1,000 results | the job page | liveness check |
+
+**Stop rule for newest-first lists:** stop at the first page where every id is already known.
+
+**Liveness check, weekly:** for open kept jobs from sources with no whole list, GET the posting link. A 404 or 410, a redirect to a generic jobs page, or text such as "no longer accepting applications" marks the job closed.
+
+## Company discovery and board tiers
+
+"jobhunt discover" fills the companies table once a month, when a new Common Crawl crawl appears.
+
+1. GET index.commoncrawl.org/collinfo.json and take the newest crawl's index address.
+2. Ask that index for every captured link under each hiring-system pattern: jobs.lever.co/\*, boards.greenhouse.io/\*, job-boards.greenhouse.io/\*, jobs.ashbyhq.com/\*, apply.workable.com/\*, and myworkdayjobs.com as a whole domain. Ask for the page count first (showNumPages=true), then fetch page by page, one request every 2 s.
+3. Take the first path segment of each link as the board slug (the host, tenant and site for Workday). Drop duplicates and insert boards not already known.
+4. Check each new board with one call: a 404 makes it dead, an empty list makes it cold, any jobs make it active.
+5. The company lists in sources.csv add boards the same way, from the hiring-system links on their pages.
+
+| Tier | Rule | Checked |
+| --- | --- | --- |
+| Active | has open jobs | nightly |
+| Cold | exists but has no jobs | weekly |
+| Dead | answered 404 | monthly; dropped after 3 dead months in a row |
+
+A board moves between tiers after each check. At 1 request a second per hiring system, 10,000 active boards take about 3 hours, and the systems run side by side.
+
+## Code rules before the model
+
+These run on every new sighting, before any detail fetch when the list already has the field. They remove only clear cases; anything unclear goes on to the model.
+
+**Location.** The location text is matched against GeoNames cities15000 (every city over 15,000 people), its country list, and a short region list.
+
+- Keep: any place in Japan; Asia or APAC (Asia-Pacific); Worldwide, Anywhere or Global; a bare "Remote".
+- Remove, rule "location": only places outside Japan with no anywhere-marker, such as "Remote - US", "London, UK" or "EMEA" (Europe, the Middle East and Africa).
+- Empty or unrecognized: keep.
+
+**Title.** Remove, rule "not software", only when the title has a word from a non-software list (sales, account executive, recruiter, marketing, legal, finance, customer success) and none from the software list (engineer, developer, programmer, SRE, DevOps, full stack, frontend, backend, QA, data engineer). SRE is site reliability engineer; QA is quality assurance.
+
+**Language.** Count characters in the hiragana, katakana and kanji ranges. Over 30% of the description's letters means the posting is written in Japanese: remove, rule "Japanese posting". An English posting that mentions Japanese is never removed here; the model judges it.
+
+**Employment type.** Remove, rule "contract", when the source's own structured field says contract, freelance or temporary (for example Lever's commitment field), or the title starts with "Contract" or "Freelance".
+
+**Queue order.** A code score decides what the model reads first:
+
+prescore = 3 × location hint + 2 × title hint + 1 × (listed pay at or above the floor) + 1 × (posted within 7 days)
+
+- location hint: 1 for Japan, Osaka, Kansai, APAC, worldwide or anywhere; 0.5 for a bare "Remote"; 0 otherwise
+- title hint: 1 for React, Java, JavaScript, frontend, full stack or backend; 0.5 for engineer or developer; 0 otherwise
+
+## Model stage
+
+The model only reads postings and fills in facts. It never scores: scoring is a formula in code, so a weight change re-sorts everything in seconds with no model calls.
+
+**Runtime.** Any local server that speaks the OpenAI-style chat API; Ollama, llama.cpp's server and LM Studio all do. config.toml holds its address and model name. Temperature 0, one job per call.
+
+**Input trimming.**
+
+1. Convert the description from HTML to plain text.
+2. Split it into sections at its headings.
+3. Keep sections whose heading mentions requirements, qualifications, responsibilities, the role, location, remote work, compensation, salary, benefits or hours. Drop company history, culture and equal-opportunity statements.
+4. Cap the result at 6,000 characters. Title, company, location text and the source's structured fields go in front, untouched.
+
+**Output.** One JSON object, validated against this schema with pydantic. The schema itself is sent along when the server supports constrained output.
+
+| Field | Values |
+| --- | --- |
+| open_to_japan_resident | yes, no, unclear |
+| japanese | required, plus, not_mentioned |
+| employment | payroll, employer_of_record, contract, freelance, dispatch, unclear |
+| work_mode | remote, hybrid, onsite |
+| office_city, office_days_per_week | text and number, or null |
+| overlap | time zone, start hour, end hour; or null |
+| seniority | junior, mid, senior, staff_plus, unclear |
+| years_required | number or null |
+| stack, primary_language | list of technologies; one language or null |
+| pay_min, pay_max, pay_currency, pay_period | numbers; currency code; year, month or hour; or null |
+| overtime | none_mentioned, some, heavy |
+| on_call | yes, no, not_mentioned |
+| is_software_job | yes, no |
+| evidence | a short quote behind each of open_to_japan_resident, japanese and employment |
+
+**Validation.** Invalid JSON or a schema failure gets one retry, with the error message added to the prompt. A second failure marks the job extract_failed. It stays in the list with a "check" badge and shows on the health view.
+
+**Versioning.** Each job stores the prompt version behind its facts. A new prompt never re-runs old jobs by itself; "jobhunt reextract --since DATE" does it on request.
+
+**Throughput** is logged per call. The health view shows seconds per job and how many nights the current queue will take.
+
+## Removal after extraction
+
+Once a job has facts, these rules run in code. Each removal stores the rule's name and the model's quote in removal_rule and removal_quote.
+
+| Rule | Removes when |
+| --- | --- |
+| Not open to Japan | open_to_japan_resident is no |
+| Requires Japanese | japanese is required |
+| Not payroll | employment is contract or freelance |
+| Can't commute | work_mode is onsite or hybrid, office_city is not on the commutable list in profile.toml, and it is not a Tokyo hybrid role |
+| Not software | is_software_job is no |
+
+- "unclear" never removes. The job stays and gets a "check" badge.
+- Dispatch to a client site is still a payroll job, so it stays; it is shown with a "dispatch" badge.
+- Removed jobs keep all their data. The Removed view shows the rule and the quote, and a restore button puts the job back.
+- A restored job is never removed again by the same rule.
+
+## Deduping
+
+Deduping runs in code as each sighting arrives, so the model never reads the same position twice.
+
+**Level 1: same link.** The canonical link has a lowercase host, https, no fragment, no trailing slash, and no tracking parameters (utm_ anything, ref, source, gh_src, lever-source, lever-origin). A link already in sightings only updates last_seen_at.
+
+**Level 2: same key.** key = company_norm + title_norm + city_norm. An exact match attaches the sighting to that job.
+
+- company_norm: Unicode NFKC normalization (which turns full-width letters into ordinary ones), lowercase, punctuation removed, legal suffixes removed (inc, llc, ltd, co, corp, gmbh, kk, 株式会社, 合同会社, (株)), then the alias table.
+- title_norm: NFKC, lowercase, bracketed text and place names removed, "sr" to "senior", "jr" to "junior", spaces collapsed.
+- city_norm: the matched gazetteer city, or "remote".
+
+**Level 3: fuzzy, same company only.** Runs after the detail fetch, against open jobs with the same company_norm.
+
+- Title similarity: shared title words divided by all title words (Jaccard similarity).
+- Description similarity: Jaccard similarity over 5-word shingles (every run of five consecutive words).
+- Title ≥ 0.6 and description ≥ 0.8: merge.
+- Description between 0.5 and 0.8: a borderline pair. The model gets both trimmed postings and answers "same" or "different".
+- Below that: different jobs.
+
+**Agent posts that hide the company** (no company, or a name on the known-agency list) are never merged. MinHash, a fast estimate of description similarity, finds open jobs at 0.8 or above, and the post is linked to that job as "probably the same".
+
+**Primary link.** A job shows the link from its best sighting: the employer's hiring system first, then a Japan board, then a global board, then an agent.
+
+**Reposts.** A closed job whose key reappears within 30 days reopens with its old record and first-seen date.
+
+## Scoring
+
+Each kept job gets a score from 0 to 100 from a fixed formula over its facts and profile.toml. Weights and breakpoints live in config.toml, and "jobhunt rescore" re-applies them in seconds.
+
+score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniority + 0.10 × balance)
+
+| Part | Scores 1.0 | In between | Scores low | Unknown |
+| --- | --- | --- | --- | --- |
+| Pay (yearly, US dollars) | $120k and up | 0.7 at the $100k floor; straight lines between the points | 0 at $40k and below | 0.4 |
+| Location | remote and open to Japan, or in a commutable Kansai city | 0.5 Tokyo hybrid, 2 office days or fewer | 0.3 Tokyo hybrid, 3 or more | 0.6 |
+| Stack | primary language at level 3 in profile.toml | 0.8 at level 2, 0.5 at level 1 | 0.3 not in the profile | 0.6 |
+| Seniority | years asked at or under the candidate's years | minus 0.2 per extra year asked | 0.2 for staff level and above | 0.7 |
+| Balance | overlap hours inside 08:00–20:00 Japan time | 0.5 if overlap reaches 20:00–23:00 | 0.1 if any overlap falls 23:00–07:00 | 0.6 |
+
+- **Pay conversion:** monthly × 12, hourly × 2,000, then a currency table in config.toml that the candidate updates by hand. A range uses its midpoint.
+- **Balance adjustments:** heavy overtime multiplies balance by 0.5, on-call duty by 0.8.
+- **Skill levels** in profile.toml: 3 is strong, 2 is working, 1 is "could pick it up". The candidate sets them.
+- **Reason line,** written by code from the parts: work mode and place · pay in the posting's currency and in dollars · primary language and the candidate's level · years asked against the candidate's · overlap hours in Japan time.
+
+**Badges**
+
+- **unicorn:** open to Japan, Japanese not required, payroll or employer of record, remote or Kansai-based, pay at or above $100k, primary language at level 1 or higher. A label only; the score still sets the order.
+- **check:** a removal-relevant fact is unclear, or extraction failed.
+- **dispatch:** a payroll job placed at a client's site.
+
+**Comparator: keeping the top 20 sharp**
+
+1. When a job enters the top 20 by score, the model compares it with each of the other 19, one pair per call, with A and B in random order.
+2. Each answer (winner plus one line of why) is stored and never asked again.
+3. Order inside the top 20 = most pairwise wins; ties go to the higher score.
+4. A closed job leaves the top 20, and its stored answers stay.
+
+## The list page
+
+"jobhunt serve" runs a local web page at localhost:8765, server-rendered with FastAPI and Jinja2, with no JavaScript framework. It reads the database directly, so it is always current.
+
+| View | Shows |
+| --- | --- |
+| New | jobs first seen since the last visit, by score |
+| All open | every kept, open job: the top 20 in comparator order, then the rest by score |
+| Removed | removed jobs, filterable by rule, each with its quote and a restore button |
+| Applied | jobs with a status, newest first, with follow-up dates |
+| Health | per-source status (see Health and errors) |
+
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and status buttons: apply, applied, interviewing, rejected, ghosted, not interested.
+
+**Buttons** send a plain form post that sets the job's status and time. "Apply" also queues a packet. Any status takes the job out of New and All open.
+
+**Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows in the Applied view.
+
+## Application packets
+
+Each job marked apply gets a packet in the next model window, or right away with "jobhunt packet JOB_ID". Every application is submitted by hand.
+
+| Part | Made by | How |
+| --- | --- | --- |
+| Resume version | code | Picked from profile/resumes by primary language: the frontend file for React and JavaScript, the backend file for Java, the general file otherwise |
+| Cover letter | model | From the trimmed posting, the job's facts and the chosen resume; 250 words or fewer |
+| Screening answers | model | Only for questions printed in the posting itself |
+| Gap list | code | Stack items missing from profile.toml, plus years asked minus the candidate's years |
+
+**Rules for the model's text:**
+
+- English only.
+- Never name the candidate's previous project or the agency it served; call it a large-scale federal modernization program.
+- Use only facts from the resume and profile.toml. Nothing invented.
+
+**Output:** a packets row plus packets/JOB_ID.md, linked from the job's row on the list page.
+
+## Health and errors
+
+Every request lands in fetch_log. Every run writes one runs row with its counts: fetched, new sightings, new jobs, removed by code, extracted, removed after extraction, failed, closed.
+
+The Health view shows each source's last run, status, requests, new jobs, errors, backoff, and its 7-night average of new jobs. It flags:
+
+- **Blocked:** fail_streak above 0, or disabled after 3.
+- **Parser broken:** requests succeeded but parsed postings dropped to 0, on a source that averages 5 or more new jobs a night. This also catches a site that changed its layout.
+- **Extraction failing:** more than 10% of the night's extractions failed.
+- **Model behind:** the queue holds more than 3 nights of measured throughput.
+
+Every collector runs inside its own error boundary: one broken site is logged and skipped, and never stops the run.
+
+## Build order and testing
+
+Each step ends with something that runs.
+
+1. **Skeleton:** package, config files, schema, the fetch module with all its politeness rules, and the CLI with init and collect.
+2. **Thin slice, end to end:** Himalayas (JSON API), TokyoDev and Japan Dev (HTML), and the Greenhouse collector on 20 boards taken from the Japan Dev company list. They run through code rules, dedupe levels 1 and 2, extraction, removal, scoring and the list page. From here on the list is real.
+3. **Every feed, JSON API and hiring-system collector,** plus company discovery and board tiers.
+4. **Plain-page collectors,** reusing the jpjobs package (Python, version 0.2.0) where it already covers a board.
+5. **Dedupe level 3, the comparator and packets.**
+6. **The three browser sites,** last: the most work for the least new volume.
+
+**Testing**
+
+- Each collector has saved sample responses in tests/fixtures and a parser test against them.
+- "jobhunt collect --source NAME --dry-run" prints parsed postings without writing anything.
+- The code rules have a table test: location strings, titles and texts, each with its expected verdict.
+- A set of 50 postings checks extraction accuracy whenever the prompt or the model changes. Claude Code labels them during the build: "jobhunt evalextract --export 50" takes 50 postings from the first collection, Claude Code writes the correct facts for each by hand into tests/extraction_set, and the candidate reads the labels over. "jobhunt evalextract" runs extraction on all 50 and reports the share right per field.
+
+## Open items
+
+- [ ] Fill in profile.toml: skills with levels 1 to 3, years of professional experience, and the commutable city list
+- [ ] Write the resume versions in profile/resumes: frontend, backend, general
+- [ ] Pick the local model server and model; the first night measures seconds per job
+
+## Source list
+
+Every source the collectors cover. sources.csv is built from this table; company boards found through discovery go into the companies table, not here.
+
+| Source | Collector | Link | How to collect |
+| --- | --- | --- | --- |
+| TokyoDev | html | https://www.tokyodev.com/jobs | Server-rendered HTML, filter pages like /jobs/fully-remote. No RSS |
+| Japan Dev | html | https://japan-dev.com/jobs | Server-rendered HTML. No RSS or API |
+| Daijob | html | https://www.daijob.com/en/ | Plain HTTP pages (jpjobs package already scrapes it) |
+| CareerCross | browser | https://www.careercross.com/en | Public pages with anti-bot |
+| GaijinPot Jobs | html | https://jobs.gaijinpot.com | Public pages. robots.txt blocks crawlers; jpjobs scrapes it over HTTP |
+| LinkedIn Jobs (Japan) | browser | https://www.linkedin.com/jobs/search?location=Japan | Guest search, no login: /jobs-guest/jobs/api/seeMoreJobPostings/search?location=Japan&f_TPR=r86400&start=N (f_TPR=r86400 means posted in the last 24 hours; f_WT=2 adds the remote filter). Terms prohibit scraping |
+| Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
+| startup.jobs | json_api | https://startup.jobs/locations/japan | API: api.startup.jobs/v1/jobs?workplace_type=remote&role=engineering&country=... (free key, 20 req/min). RSS without key: startup.jobs/feeds/jobs?role=engineering |
+| Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |
+| r/JapanDev | rss | https://www.reddit.com/r/JapanDev/ | RSS: append .rss; Reddit JSON |
+| JAC Recruitment | manual | https://www.jac-recruitment.jp/ | Agent sign-up; public job search |
+| en world Japan | manual | https://www.enworld.com/ | Agent sign-up; public listings |
+| Robert Walters Japan | manual | https://www.robertwalters.co.jp/en/ | Agent sign-up; public job search |
+| Hays Japan | manual | https://www.hays.co.jp/en/ | Agent sign-up; public 'Technology jobs in Osaka' search |
+| Michael Page Japan | manual | https://www.michaelpage.co.jp/en | Agent sign-up; public job search (/en/jobs/it/osaka) |
+| Robert Half Japan | manual | https://www.roberthalf.com/jp/en | Agent sign-up; public job search |
+| RGF Professional Recruitment | manual | https://www.rgf-professional.jp/en/ | Agent sign-up; public job search |
+| Build+ (formerly Wahl+Case) | manual | https://buildplus.io/ | Agent sign-up; public job pages |
+| Computer Futures Japan | manual | https://www.computerfutures.com/ja-jp/ | Agent sign-up; public job search |
+| Global×Engineer (Agent Inc.) | manual | https://agent-network.com/globalengineer | Agent sign-up |
+| Himalayas | json_api | https://himalayas.app/jobs/countries/japan | API: himalayas.app/jobs/api/search?country=JP&employment_type=Full%20Time; RSS himalayas.app/rss |
+| Jobicy | json_api | https://jobicy.com | API: jobicy.com/api/v2/remote-jobs?geo=japan&industry=dev&count=50; RSS jobicy.com/jobs/feed |
+| Real Work From Anywhere | rss | https://www.realworkfromanywhere.com | RSS: /rss.xml, /remote-fullstack-jobs/rss.xml, /remote-backend-jobs/rss.xml, /remote-frontend-jobs/rss.xml |
+| RemoteOK | json_api | https://remoteok.com | JSON API remoteok.com/api; RSS remoteok.com/rss (link-back required) |
+| We Work Remotely | rss | https://weworkremotely.com | RSS: /categories/remote-full-stack-programming-jobs.rss, -back-end-, -front-end-, remote-programming-jobs.rss |
+| Remotive | json_api | https://remotive.com | API: remotive.com/api/remote-jobs?category=software-dev (max 4 calls a day; 24-hour delay) |
+| Working Nomads | json_api | https://www.workingnomads.com | JSON feed: workingnomads.com/api/exposed_jobs/ |
+| RemoteYeah | rss | https://remoteyeah.com | RSS by role: /remote-full-stack-engineer-jobs.xml, -backend-, -software-; all at /rss.xml |
+| Remote First Jobs | rss | https://remotefirstjobs.com | RSS: remotefirstjobs.com/rss |
+| Hacker News Who Is Hiring | hn | https://news.ycombinator.com/submitted?id=whoishiring | Algolia API: hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring then /api/v1/items/{id} |
+| Remote Rocketship | html | https://www.remoterocketship.com/country/japan/jobs/software-engineer | Public pages; email alerts |
+| Remote.com Jobs | html | https://remote.com/jobs/all | Public pages |
+| Arc (full-time only) | manual | https://arc.dev/remote-jobs | Sign-up for full list |
+| Y Combinator Work at a Startup | manual | https://www.workatastartup.com | Account to see and apply |
+| HRMOS | hrmos | https://hrmos.co/pages/COMPANY/jobs | Public list page per company |
+| Greenhouse | greenhouse | https://boards-api.greenhouse.io/v1/boards/COMPANY/jobs | Public JSON API, no key. List without content, then /jobs/ID for new jobs |
+| Lever | lever | https://api.lever.co/v0/postings/COMPANY?mode=json | Public JSON API, no key |
+| Ashby | ashby | https://api.ashbyhq.com/posting-api/job-board/BOARD?includeCompensation=true | Public JSON API, no key |
+| Workable | workable | https://apply.workable.com/api/v1/widget/accounts/SLUG?details=true | Public JSON API, no key |
+| SmartRecruiters | smartrecruiters | https://api.smartrecruiters.com/v1/companies/ID/postings?country=jp | Public JSON API, no key |
+| Workday | workday | https://TENANT.wdN.myworkdayjobs.com/wday/cxs/TENANT/SITE/jobs | POST with JSON body {limit, offset, searchText} |
+| Talentio | talentio | https://open.talentio.com | Public pages |
+| Money Forward | hrmos | https://hrmos.co/pages/moneyforward/jobs | HRMOS |
+| Moneytree | hrmos | https://hrmos.co/pages/2235668992508076032/jobs | HRMOS |
+| Cybozu | html | https://cybozu.co.jp/recruit/entry/ | Static job pages |
+| HACARUS | html | https://hacarus.com/careers/ | Own portal (hacarus.recruitment.jp) |
+| PayPay | greenhouse | https://boards-api.greenhouse.io/v1/boards/paypay/jobs | Greenhouse API |
+| Rakuten | workday | https://rakuten.wd1.myworkdayjobs.com/RakutenInc | Workday JSON at /wday/cxs/rakuten/RakutenInc/jobs |
+| Woven by Toyota | lever | https://api.lever.co/v0/postings/woven-by-toyota | Lever API |
+| SmartNews | workable | https://apply.workable.com/smartnews | Workable API |
+| Preferred Networks | talentio | https://www.preferred.jp/en/careers/ | Talentio |
+| Amazon Japan | json_api | https://www.amazon.jobs/en/search.json?loc_query=Japan | Public JSON search |
+| Treasure Data | html | https://www.treasuredata.com/company/careers/ | Own page |
+| HENNGE | html | https://recruit.hennge.com/en/ | Own pages |
+| Paidy | greenhouse | https://job-boards.greenhouse.io/paidyinc | Greenhouse (API returned 0 jobs when checked) |
+| TokyoDev company list | company_list | https://www.tokyodev.com/companies | Public pages |
+| Japan Dev company list | company_list | https://japan-dev.com/companies | Public pages |
+| Remote In Tech | company_list | https://github.com/remoteintech/remote-jobs | Clone the repo |
+| Established Remote | company_list | https://github.com/yanirs/established-remote | README table |
+| Common Crawl URL index | discover | https://index.commoncrawl.org | CDX API with JSON output; prefix queries such as url=jobs.lever.co/\* against the newest crawl (list at index.commoncrawl.org/collinfo.json); re-run monthly when a new crawl lands |
+| Coral Capital portfolio | company_list | https://coralcap.co/portfolio/?lang=en | Public pages |

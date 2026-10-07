@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="view-head"><h1>Health</h1></header>
+
+<section>
+  <h2>Model</h2>
+  <p>
+    {% if seconds_per_job %}{{ "%.1f"|format(seconds_per_job) }} s per job{% else %}no extractions measured yet{% endif %}
+    · {{ queue }} queued
+    {% if nights is not none %} · {{ "%.1f"|format(nights) }} nights to clear{% endif %}
+    {% for flag in model_flags %} · <span class="flag">{{ flag }}</span>{% endfor %}
+  </p>
+  {% if last_run %}
+  {% set c = last_run.counts %}
+  <p>
+    Last run {{ last_run.started_at[:16] }}: {{ c.fetched }} requests, {{ c.new_sightings }} new sightings,
+    {{ c.new_jobs }} new jobs, {{ c.removed_by_code }} removed by code, {{ c.extracted }} extracted,
+    {{ c.removed_after_extraction }} removed after extraction, {{ c.failed }} failed, {{ c.closed }} closed.
+  </p>
+  {% endif %}
+  <p>Boards: {% for tier, n in tiers.items() %}{{ tier }} {{ n }}{% if not loop.last %} · {% endif %}{% else %}none yet{% endfor %}</p>
+</section>
+
+<section>
+  <h2>Sources</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Source</th><th>Last run</th><th>Status</th><th>Requests</th><th>Parsed</th><th>New jobs</th>
+          <th>Errors</th><th>7-night avg</th><th>Backoff</th><th>Flags</th></tr>
+    </thead>
+    <tbody>
+    {% for s in sources %}
+      <tr{% if s.flags %} class="flagged"{% endif %}>
+        <td>{{ s.name }}{% if not s.enabled %} (off){% endif %}</td>
+        <td>{{ (s.last_run_at or "")[:16] }}</td>
+        <td>{{ s.last_status or "" }}</td>
+        <td>{{ s.tally.requests or 0 }}</td>
+        <td>{{ s.tally.parsed or 0 }}</td>
+        <td>{{ s.tally.new_jobs or 0 }}</td>
+        <td>{{ s.tally.errors or 0 }}</td>
+        <td>{{ "%.1f"|format(s.average) }}</td>
+        <td>{{ (s.backoff_until or "")[:16] }}{% if s.min_delay_s %} · gap {{ s.min_delay_s }}s{% endif %}</td>
+        <td>
+          {% for flag in s.flags %}<span class="flag">{{ flag }}</span> {% endfor %}
+          {% if s.fail_streak %}
+          <form method="post" action="/sources/{{ s.id }}/enable"><button>turn back on</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

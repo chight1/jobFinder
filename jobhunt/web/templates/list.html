@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_job.html" import job_row, status_buttons %}
+{% block body %}
+<header class="view-head">
+  <h1>{{ title }} <span class="count">{{ jobs|length }}</span></h1>
+  {% if title == "New" %}
+  <form method="post" action="/seen"><button>Mark all seen</button></form>
+  {% endif %}
+</header>
+{% if not jobs %}<p class="empty">Nothing here.</p>{% endif %}
+{% for job in jobs %}
+  {% call job_row(job, top=loop.index <= (top_count or 0)) %}{{ status_buttons(job) }}{% endcall %}
+{% endfor %}
+{% endblock %}

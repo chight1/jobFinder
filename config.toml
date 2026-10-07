@@ -1,0 +1,101 @@
+# Settings, schedule and scoring weights. Paths are relative to this file.
+
+[paths]
+data_dir = "data"
+packets_dir = "packets"
+resumes_dir = "profile/resumes"
+sources_csv = "sources.csv"
+
+[schedule]
+start = "01:00"  # when the OS scheduler starts "jobhunt nightly"
+fetch_stop = "05:00"
+model_stop = "07:30"
+liveness_weekday = 6  # Sunday (Monday is 0)
+
+[fetch]
+user_agent = "Mozilla/5.0 (compatible; jobhunt/0.1; personal job search)"
+html_gap_s = 4.0
+html_jitter_s = 2.0
+api_gap_s = 1.0
+api_jitter_s = 0.5
+max_gap_s = 30.0
+parallel_sites = 6
+timeout_s = 30.0
+retry_wait_s = 60.0
+retries = 2
+disable_after_fails = 3
+
+[llm]
+# Any server with the OpenAI-style chat API: Ollama, llama.cpp server, LM Studio.
+base_url = "http://localhost:11434/v1"
+model = ""  # open item: pick the model
+structured_output = true  # send the JSON schema when the server supports it
+timeout_s = 600.0
+input_cap_chars = 6000
+
+[score]
+weights = { pay = 0.40, location = 0.20, stack = 0.20, seniority = 0.10, balance = 0.10 }
+top_n = 20
+
+[score.pay]
+full_usd = 120000
+zero_usd = 40000
+at_floor = 0.7  # the floor itself is pay_floor_usd in profile.toml
+unknown = 0.4
+
+[score.location]
+remote_or_commutable = 1.0
+tokyo_hybrid_few_days = 0.5  # office_days_per_week at or under max_few_days
+tokyo_hybrid_many_days = 0.3  # also used when the day count is not stated
+max_few_days = 2
+unknown = 0.6
+
+[score.stack]
+level = { 3 = 1.0, 2 = 0.8, 1 = 0.5 }
+not_in_profile = 0.3
+unknown = 0.6
+
+[score.seniority]
+per_extra_year = 0.2
+staff_plus = 0.2
+unknown = 0.7
+
+[score.balance]
+day = 1.0  # all overlap inside 08:00-20:00 Japan time
+evening = 0.5  # overlap reaches 20:00-23:00 (or 07:00-08:00)
+night = 0.1  # any overlap inside 23:00-07:00
+unknown = 0.6
+heavy_overtime = 0.5
+on_call = 0.8
+
+# US dollars per unit of each currency. Updated by hand.
+[currency]
+USD = 1.0
+JPY = 0.0067
+EUR = 1.08
+GBP = 1.27
+CAD = 0.73
+AUD = 0.66
+SGD = 0.74
+HKD = 0.128
+CHF = 1.13
+INR = 0.012
+KRW = 0.00073
+CNY = 0.14
+TWD = 0.031
+
+[dedupe]
+# Recruiting agencies: their posts hide the real employer and are never merged.
+agencies = [
+    "jac recruitment", "en world", "robert walters", "hays", "michael page",
+    "robert half", "rgf professional recruitment", "build+", "wahl+case",
+    "computer futures", "agent inc", "global×engineer",
+]
+
+[list]
+port = 8765
+follow_up_days = 10
+
+[packets]
+resume_by_language = { javascript = "frontend.md", react = "frontend.md", java = "backend.md" }
+default_resume = "general.md"

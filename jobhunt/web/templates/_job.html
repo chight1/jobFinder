@@ -1,0 +1,34 @@
+{% macro job_row(job, top=false) %}
+<article class="job{% if top %} top{% endif %}">
+  <div class="score">{{ "%.0f"|format(job.score or 0) }}</div>
+  <div class="body">
+    <h2>
+      <a href="{{ job.url }}" target="_blank" rel="noreferrer">{{ job.title }}</a>
+      {% for badge in job.badges %}<span class="badge {{ badge }}">{{ badge }}</span>{% endfor %}
+    </h2>
+    <p class="meta">
+      {{ job.company_raw or "company not given" }}
+      · {{ job.facts.work_mode or "work mode ?" }}, {{ job.facts.office_city or job.location_raw or "place not given" }}
+      · {{ pay(job.facts) }}
+      · {{ job.facts.primary_language or "language not given" }}
+    </p>
+    {% if job.reason_line %}<p class="reason">{{ job.reason_line }}</p>{% endif %}
+    <p class="links">
+      via {{ job.source_name }}
+      {% for other in job.others %} · <a href="{{ other.url }}" target="_blank" rel="noreferrer">{{ other.name }}</a>{% endfor %}
+      {% for same in job.probably_same %} · probably the same as #{{ same }}{% endfor %}
+      {% if job.has_packet %} · <a href="/packets/{{ job.id }}">packet</a>{% endif %}
+      · #{{ job.id }}
+    </p>
+    {{ caller() if caller }}
+  </div>
+</article>
+{% endmacro %}
+
+{% macro status_buttons(job) %}
+<form method="post" action="/jobs/{{ job.id }}/status" class="actions">
+  {% for status in statuses %}
+  <button name="status" value="{{ status }}"{% if job.status == status %} disabled{% endif %}>{{ button_labels.get(status, status) }}</button>
+  {% endfor %}
+</form>
+{% endmacro %}
