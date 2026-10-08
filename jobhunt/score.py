@@ -311,8 +311,9 @@ def apply_facts(conn: sqlite3.Connection, job: sqlite3.Row, cfg: Config, gaz: Ga
     scored = score_job(facts, cfg, gaz, stage=stage)
     conn.execute(
         "UPDATE jobs SET stage = ?, removal_rule = NULL, removal_quote = NULL, score = ?, score_parts = ?, "
-        "reason_line = ?, badges = ? WHERE id = ?",
-        (stage, scored.score, db.dumps(scored.parts), scored.reason_line, db.dumps(scored.badges), job["id"]),
+        "reason_line = ?, badges = ?, listed_at = COALESCE(listed_at, ?) WHERE id = ?",
+        (stage, scored.score, db.dumps(scored.parts), scored.reason_line, db.dumps(scored.badges),
+         db.utc_now(), job["id"]),
     )
     return stage
 

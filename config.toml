@@ -28,10 +28,13 @@ disable_after_fails = 3
 [llm]
 # Any server with the OpenAI-style chat API: Ollama, llama.cpp server, LM Studio.
 base_url = "http://localhost:11434/v1"
-model = ""  # open item: pick the model
+model = "gpt-oss-jobhunt"  # gpt-oss:20b with an 8k context; see models/gpt-oss-jobhunt.Modelfile
 structured_output = true  # send the JSON schema when the server supports it
 timeout_s = 600.0
 input_cap_chars = 6000
+# After a server error or lost connection: wait this long and retry. The night stops only
+# when every retry fails (4 attempts in a row with these waits).
+retry_waits_s = [30, 120, 300]
 
 [score]
 weights = { pay = 0.40, location = 0.20, stack = 0.20, seniority = 0.10, balance = 0.10 }

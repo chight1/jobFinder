@@ -1,0 +1,4 @@
+{% from "_job.html" import job_row, status_buttons %}
+{% for job in jobs %}
+  {% call job_row(job) %}{{ status_buttons(job) }}{% endcall %}
+{% endfor %}

@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int)
 
     args = parser.parse_args(argv)
+    # Job titles carry emoji and accents; a Windows console defaults to a code page that can't print them.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     cfg = config_module.load(args.root)
     _setup_logging(cfg)
     handler = {

@@ -74,7 +74,6 @@ _MODULES = {
     "json_api": "json_apis",
     "hn": "hn",
     "browser": "browser",
-    "linkedin": "linkedin",
 }
 RUNNABLE = frozenset(_MODULES)
 BOARD_COLLECTORS = frozenset({"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "workday", "hrmos", "talentio"})

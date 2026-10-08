@@ -42,7 +42,7 @@ MISSES_TO_CLOSE = 2
 REPOST_WINDOW = timedelta(days=30)
 DEAD_MONTHS_TO_DROP = 3
 _KIND_RANK = {"employer": 0, "japan_board": 1, "global_board": 2, "agent": 3}
-_HTML_COLLECTORS = frozenset({"html", "hrmos", "talentio", "rss", "browser", "linkedin"})
+_HTML_COLLECTORS = frozenset({"html", "hrmos", "talentio", "rss", "browser"})
 
 
 @dataclass
@@ -103,7 +103,7 @@ class Runner:
         finally:
             self._finish(collector)
         # A run cut short keeps the old cursor: a feed's new ETag would hide the entries not yet read.
-        if not self.s.dry_run and tally.status != "partial":
+        if not self.s.dry_run and tally.status == "ok":
             self.conn.execute(
                 "UPDATE sources SET cursor = ? WHERE id = ?",
                 (db.dumps(listing.cursor) if listing.cursor else None, source["id"]),
@@ -120,7 +120,7 @@ class Runner:
             self._mark_board(board, job_count=None)
             return Tally(status="board gone")
         tally = self._ingest(ctx, collector, source, board["id"], listing)
-        cursor = listing.cursor if tally.status != "partial" else db.loads(board["cursor"])
+        cursor = listing.cursor if tally.status == "ok" else db.loads(board["cursor"])
         self._mark_board(board, job_count=len(listing.seen_ids), cursor=cursor)
         return tally
 
@@ -166,10 +166,14 @@ class Runner:
                 outcome = self._one(ctx, collector, source, board_id, summary)
             except (SourceBlocked, DailyCapReached):
                 raise
-            except (FetchError, PostingGone, ValueError, KeyError, sqlite3.IntegrityError) as exc:
+            except PostingGone:
+                continue  # taken down since the list was read: not an error
+            except (FetchError, ValueError, KeyError, sqlite3.IntegrityError) as exc:
+                # Any error ends this site for the run; what is left is still new next run.
                 tally.errors += 1
-                log.warning("%s: %s skipped: %r", source["id"], summary.url, exc)
-                continue
+                tally.status = f"stopped: {exc!r}"[:200]
+                log.warning("%s: stopped at %s: %r", source["id"], summary.url, exc)
+                break
             if outcome != "touched":
                 tally.new_sightings += 1
             if outcome in ("removed", "queued"):

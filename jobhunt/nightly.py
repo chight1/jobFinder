@@ -164,18 +164,24 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
             for board in _due_boards(conn, source["collector"]):
                 if time.time() >= shared.deadline:
                     break
+                own_site = source["collector"] in PER_TENANT_HOSTS
                 try:
-                    tally.add(runner.run_board(source, board))
+                    board_tally = runner.run_board(source, board)
                 except SourceBlocked as exc:
-                    if source["collector"] not in PER_TENANT_HOSTS:
+                    if not own_site:
                         raise  # the shared API host pushed back: stop the whole system
                     tally.errors += 1
                     log.warning("%s board %s blocked: %s", source["id"], board["slug"], exc)
+                    continue
                 except DailyCapReached:
                     raise
-                except Exception as exc:  # one broken board never stops the rest
-                    tally.errors += 1
+                except Exception as exc:
                     log.warning("%s board %s failed: %r", source["id"], board["slug"], exc)
+                    board_tally = Tally(errors=1, status=f"stopped: {exc!r}"[:200])
+                tally.add(board_tally)
+                # Any error ends the site for the run. On Workday each board is its own site.
+                if board_tally.status.startswith("stopped") and not own_site:
+                    break
         else:
             tally = runner.run_source(source)
     except SourceBlocked as exc:
@@ -239,10 +245,9 @@ def check_liveness(cfg: Config, *, deadline: float, run_started: datetime) -> in
                     break
                 try:
                     page = fetcher.get(LIVENESS_SOURCE, row["url"])
-                except SourceBlocked:
+                except FetchError as exc:  # a block or any other error ends this site's checks
+                    log.warning("liveness checks on %s stopped at %s: %r", row["source_id"], row["url"], exc)
                     break
-                except FetchError:
-                    continue
                 if _looks_closed(row["url"], page.url, page.status, page.text):
                     now = db.utc_now()
                     with db.transaction(local):

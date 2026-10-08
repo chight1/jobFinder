@@ -73,7 +73,7 @@ def create_app(cfg: Config) -> FastAPI:
         with connection() as conn:
             since = db.get_setting(conn, "last_list_visit", "")
             jobs = _jobs(conn, f"{_LISTED} AND j.first_seen_at > ?", (since,), "j.score DESC")
-        return render(request, "list.html", title="New", jobs=jobs, since=since)
+        return render(request, "list.html", title="New", jobs=jobs, live="new", now=db.utc_now())
 
     @app.post("/seen")
     def seen() -> RedirectResponse:
@@ -88,7 +88,28 @@ def create_app(cfg: Config) -> FastAPI:
             jobs = _jobs(conn, _LISTED, (), "j.score DESC")
         position = {job_id: i for i, job_id in enumerate(top)}
         jobs.sort(key=lambda j: (position.get(j["id"], len(top)), -(j["score"] or 0)))
-        return render(request, "list.html", title="All open", jobs=jobs, top_count=len(top))
+        return render(request, "list.html", title="All open", jobs=jobs, top_count=len(top), live="all",
+                      now=db.utc_now())
+
+    @app.get("/rows", response_class=HTMLResponse)
+    def rows(request: Request, view: str, after: str) -> HTMLResponse:
+        """Rows for jobs listed since `after`, for an open New or All open page to add without a reload.
+
+        The X-Now header is the time to ask from next, so no job is missed between two checks.
+        """
+        now = db.utc_now()
+        where = f"{_LISTED} AND j.listed_at > ? AND j.listed_at <= ?"
+        params: tuple = (after, now)
+        if view == "new":
+            with connection() as conn:
+                since = db.get_setting(conn, "last_list_visit", "")
+            where += " AND j.first_seen_at > ?"
+            params += (since,)
+        with connection() as conn:
+            jobs = _jobs(conn, where, params, "j.score DESC")
+        response = templates.TemplateResponse(request, "_rows.html", {"jobs": jobs})
+        response.headers["X-Now"] = now
+        return response
 
     @app.get("/removed", response_class=HTMLResponse)
     def removed(request: Request, rule: str = "") -> HTMLResponse:

@@ -31,7 +31,7 @@ jobhunt = "jobhunt.cli:main"
 include = ["jobhunt*"]
 
 [tool.setuptools.package-data]
-jobhunt = ["web/templates/*.html", "web/static/*.css"]
+jobhunt = ["web/templates/*.html", "web/static/*.css", "web/static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

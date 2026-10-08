@@ -6,7 +6,7 @@ A Python program collects job postings every night, cuts the ones the candidate 
 
 **Pipeline at a glance**
 
-1. Collect, nightly: new postings from 61 sources and every company board found
+1. Collect, nightly: new postings from 60 sources and every company board found
 2. Dedupe: one job, many sightings
 3. Code rules: clear cases the candidate can't take go to the removed pile
 4. Extract with the local model: facts only, once per job
@@ -28,7 +28,7 @@ Python 3.12, one package named jobhunt, one SQLite file and one command-line ent
 | db | Schema, migrations, queries. SQLite in WAL mode (write-ahead logging), so the list page can read while the nightly run writes | sqlite3 |
 | fetch | The only door to the network: per-site rate limits, retries, backoff, raw-page cache | httpx |
 | collectors | One module per collector type, all with the same interface | httpx, selectolax, feedparser |
-| browser | The three browser-only sites | Playwright with headless Chromium |
+| browser | The browser-only sites | Playwright with headless Chromium |
 | discover | Finds company boards in the Common Crawl index | httpx |
 | rules | Code removal rules and the queue score | GeoNames city and country lists |
 | dedupe | Merges sightings into jobs | datasketch (MinHash) |
@@ -119,6 +119,7 @@ Every request goes through the fetch module, so these rules hold everywhere.
 3. A fail_streak of 3 disables the source and flags it on the health view until the candidate turns it back on.
 4. A clean night resets fail_streak, and the gap halves back toward its default.
 5. No rotating addresses or other ways around a block. A blocked source waits.
+6. Any other error (a bad status, a timeout, a page that will not parse): log it and stop that site for the rest of the run, with no backoff. On Workday each company board is its own site. A posting that is simply gone (404) is not an error.
 
 ## Collectors
 
@@ -142,7 +143,7 @@ The runner compares the returned ids with the database: new ids become sightings
 | JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, startup.jobs) | GET with the API's Japan, Asia or worldwide filter where it has one | the API's own paging, newest first | rarely | liveness check |
 | Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting | 60 days after the thread |
 | Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page | liveness check |
-| Browser sites (LinkedIn, CareerCross, Wellfound) | Playwright loads list pages; LinkedIn's guest search with location Japan and "posted in the last 24 hours" | until no new ids, or LinkedIn's cap near 1,000 results | the job page | liveness check |
+| Browser sites (CareerCross, Wellfound) | Playwright loads list pages | until no new ids | the job page | liveness check |
 
 **Stop rule for newest-first lists:** stop at the first page where every id is already known.
 
@@ -222,6 +223,8 @@ The model only reads postings and fills in facts. It never scores: scoring is a 
 | evidence | a short quote behind each of open_to_japan_resident, japanese and employment |
 
 **Validation.** Invalid JSON or a schema failure gets one retry, with the error message added to the prompt. A second failure marks the job extract_failed. It stays in the list with a "check" badge and shows on the health view.
+
+**Server failures.** A server error or lost connection is retried after 30 s, then 2 minutes, then 5 minutes; a crashed model engine restarts on the next request. The model worker stops for the night only when all four attempts fail. A request the server refuses (a 4xx, such as a prompt longer than its context) skips that one task instead.
 
 **Versioning.** Each job stores the prompt version behind its facts. A new prompt never re-runs old jobs by itself; "jobhunt reextract --since DATE" does it on request.
 
@@ -304,7 +307,7 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765, server-rendered with FastAPI and Jinja2, with no JavaScript framework. It reads the database directly, so it is always current.
+"jobhunt serve" runs a local web page at localhost:8765, server-rendered with FastAPI and Jinja2, with no JavaScript framework. It reads the database directly, so it is always current. New and All open add jobs live: one small script asks the server every 10 seconds for jobs listed since its last check and slots them in by score, highlighted briefly.
 
 | View | Shows |
 | --- | --- |
@@ -361,7 +364,7 @@ Each step ends with something that runs.
 3. **Every feed, JSON API and hiring-system collector,** plus company discovery and board tiers.
 4. **Plain-page collectors,** reusing the jpjobs package (Python, version 0.2.0) where it already covers a board.
 5. **Dedupe level 3, the comparator and packets.**
-6. **The three browser sites,** last: the most work for the least new volume.
+6. **The browser sites,** last: the most work for the least new volume.
 
 **Testing**
 
@@ -387,7 +390,6 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Daijob | html | https://www.daijob.com/en/ | Plain HTTP pages (jpjobs package already scrapes it) |
 | CareerCross | browser | https://www.careercross.com/en | Public pages with anti-bot |
 | GaijinPot Jobs | html | https://jobs.gaijinpot.com | Public pages. robots.txt blocks crawlers; jpjobs scrapes it over HTTP |
-| LinkedIn Jobs (Japan) | browser | https://www.linkedin.com/jobs/search?location=Japan | Guest search, no login: /jobs-guest/jobs/api/seeMoreJobPostings/search?location=Japan&f_TPR=r86400&start=N (f_TPR=r86400 means posted in the last 24 hours; f_WT=2 adds the remote filter). Terms prohibit scraping |
 | Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
 | startup.jobs | json_api | https://startup.jobs/locations/japan | API: api.startup.jobs/v1/jobs?workplace_type=remote&role=engineering&country=... (free key, 20 req/min). RSS without key: startup.jobs/feeds/jobs?role=engineering |
 | Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |

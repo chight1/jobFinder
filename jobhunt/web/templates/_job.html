@@ -1,5 +1,5 @@
 {% macro job_row(job, top=false) %}
-<article class="job{% if top %} top{% endif %}">
+<article class="job{% if top %} top{% endif %}" id="job-{{ job.id }}" data-score="{{ job.score or 0 }}">
   <div class="score">{{ "%.0f"|format(job.score or 0) }}</div>
   <div class="body">
     <h2>

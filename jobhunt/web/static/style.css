@@ -77,6 +77,16 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 }
 
 .job.top { background: var(--top); }
+.job.fresh { animation: fresh 4s ease-out; }
+
+@keyframes fresh {
+  from { box-shadow: 0 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job.fresh { animation: none; border-color: var(--accent); }
+}
 .score { font-size: 22px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .job h2 { font-size: 16px; margin: 0 0 4px; }
 .job h2 a { text-decoration: none; }

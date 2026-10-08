@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 from jobhunt import collectors, db
 from jobhunt.collectors import BoardGone, Context
 from jobhunt.config import Config
-from jobhunt.fetch import Fetcher, FetchError, SourceBlocked
+from jobhunt.fetch import Fetcher, FetchError
 
 log = logging.getLogger(__name__)
 
@@ -137,13 +137,8 @@ def _company_list_boards(fetcher: Fetcher, source: sqlite3.Row) -> Iterable[tupl
             yield from _boards_in(text)
             if follow:
                 for url in list(dict.fromkeys(follow.findall(text)))[:max_follow]:
-                    try:
-                        yield from _boards_in(fetcher.get(source["id"], url).text)
-                    except SourceBlocked:
-                        raise
-                    except FetchError as exc:
-                        log.warning("%s: %s failed: %r", source["id"], url, exc)
-    except FetchError as exc:
+                    yield from _boards_in(fetcher.get(source["id"], url).text)
+    except FetchError as exc:  # any error ends this list for the run
         log.warning("company list %s stopped: %r", source["id"], exc)
 
 
@@ -187,12 +182,11 @@ def check_new_boards(cfg: Config, fetcher: Fetcher) -> int:
                     tier = "active" if count else "cold"
                 except BoardGone:
                     count, tier = 0, "dead"
-                except SourceBlocked as exc:
-                    log.warning("%s blocked during board checks: %s", ats, exc)
-                    break
                 except (FetchError, ValueError, KeyError) as exc:
                     log.warning("%s board %s check failed: %r", ats, board["slug"], exc)
-                    continue
+                    if ats == "workday":
+                        continue  # each Workday board is its own site
+                    break  # any error ends the shared site's checks for the run
                 conn.execute(
                     "UPDATE companies SET tier = ?, last_checked_at = ?, last_job_count = ?, "
                     "dead_streak = CASE WHEN ? = 'dead' THEN 1 ELSE 0 END WHERE id = ?",

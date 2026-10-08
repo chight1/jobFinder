@@ -37,7 +37,7 @@ def _run(runner, conn):
 
 def test_sync_sources_splits_boards_from_sources(conn):
     db.sync_sources(conn, ROOT / "sources.csv")
-    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 52
+    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 51
     assert conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 9
     rakuten = conn.execute("SELECT * FROM companies WHERE ats = 'workday'").fetchone()
     assert db.loads(rakuten["extra"])["site"] == "RakutenInc"

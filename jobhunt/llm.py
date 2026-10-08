@@ -6,6 +6,7 @@ The model only reads postings and fills in facts. It never scores.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -17,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from jobhunt import db
 from jobhunt.config import Config
 from jobhunt.text import to_text
+
+log = logging.getLogger(__name__)
 
 EXTRACT_PROMPT_VERSION = "extract-1"
 
@@ -118,6 +121,7 @@ class LLM:
         self._model = settings["model"]
         self._structured = bool(settings["structured_output"])
         self._client = httpx.Client(timeout=float(settings["timeout_s"]))
+        self._retry_waits_s = [float(s) for s in settings.get("retry_waits_s", [30, 120, 300])]
         self._conn = conn
 
     def close(self) -> None:
@@ -151,13 +155,29 @@ class LLM:
     def _call(
         self, kind: str, job_id: int | None, messages: list[dict[str, str]], response_format: dict | None
     ) -> str:
+        """One request, retried after waits when the server fails. A crashed engine restarts on the
+        next request, so a single failure costs a short wait, not the night."""
         body: dict = {"model": self._model, "messages": messages, "temperature": 0}
         if response_format:
             body["response_format"] = response_format
+        attempts = len(self._retry_waits_s) + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._post(kind, job_id, body)
+            except LLMError as exc:
+                if attempt == attempts:
+                    raise
+                wait = self._retry_waits_s[attempt - 1]
+                log.warning("model call failed (attempt %d of %d), retrying in %gs: %s", attempt, attempts, wait, exc)
+                time.sleep(wait)
+        raise AssertionError("unreachable")
+
+    def _post(self, kind: str, job_id: int | None, body: dict) -> str:
         started = time.monotonic()
         try:
             resp = self._client.post(self._url, json=body)
         except httpx.TransportError as exc:
+            self._log(kind, job_id, time.monotonic() - started, ok=False)
             raise LLMError(f"model server unreachable at {self._url}: {exc!r}") from exc
         seconds = time.monotonic() - started
         if resp.status_code != 200:

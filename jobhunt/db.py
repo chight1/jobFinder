@@ -163,6 +163,11 @@ MIGRATIONS: list[str] = [
     CREATE INDEX jobs_score ON jobs(score);
     CREATE INDEX fetch_log_source_at ON fetch_log(source_id, at);
     """,
+    # When a job first reached the list, so an open list page can add it live.
+    """
+    ALTER TABLE jobs ADD COLUMN listed_at TEXT;
+    CREATE INDEX jobs_listed ON jobs(listed_at);
+    """,
 ]
 
 
