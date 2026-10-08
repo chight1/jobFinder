@@ -8,11 +8,11 @@
 </head>
 <body>
   <nav>
-    <a href="/new" {% if title == "New" %}aria-current="page"{% endif %}>New</a>
-    <a href="/all" {% if title == "All open" %}aria-current="page"{% endif %}>All open</a>
-    <a href="/removed" {% if title == "Removed" %}aria-current="page"{% endif %}>Removed</a>
-    <a href="/applied" {% if title == "Applied" %}aria-current="page"{% endif %}>Applied</a>
-    <a href="/health" {% if title == "Health" %}aria-current="page"{% endif %}>Health</a>
+    {% for href, name in [("/new", "New"), ("/all", "All open"), ("/removed", "Removed"),
+                          ("/applied", "Applied"), ("/health", "Health")] %}
+    <a href="{{ href }}"{% if title == name %} aria-current="page"{% endif %}>{{ name }}
+      {%- if name in counts %} <span class="tab-count">{{ counts[name] }}</span>{% endif %}</a>
+    {% endfor %}
   </nav>
   <main>
     {% block body %}{% endblock %}

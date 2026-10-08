@@ -57,6 +57,7 @@ nav a {
 }
 
 nav a[aria-current="page"] { color: var(--text); background: var(--bg); font-weight: 600; }
+.tab-count { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 main { max-width: 980px; margin: 0 auto; padding: 16px; }
 

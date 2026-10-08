@@ -1,5 +1,5 @@
 """Command-line entry point: jobhunt init | nightly | collect | discover | process | rescore | reextract | packet |
-evalextract | serve."""
+evalextract | backup | restore | serve."""
 
 from __future__ import annotations
 
@@ -47,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     packet = commands.add_parser("packet", help="draft one application packet now")
     packet.add_argument("job_id", type=int)
 
+    commands.add_parser("backup", help="dump the database and packets to the backup repo, commit and push")
+    restore = commands.add_parser("restore", help="rebuild the database from the backup repo")
+    restore.add_argument("--force", action="store_true", help="replace an existing database (kept as .bak)")
+
     evalextract = commands.add_parser("evalextract", help="score the model's extraction against the labeled test set")
     evalextract.add_argument("--export", type=int, metavar="N",
                              help="instead: write N postings from the database to the test set for labeling")
@@ -63,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     handler = {
         "init": cmd_init, "nightly": cmd_nightly, "collect": cmd_collect, "discover": cmd_discover,
         "process": cmd_process, "rescore": cmd_rescore, "reextract": cmd_reextract,
-        "packet": cmd_packet, "evalextract": cmd_evalextract, "serve": cmd_serve,
+        "packet": cmd_packet, "evalextract": cmd_evalextract, "backup": cmd_backup, "restore": cmd_restore,
+        "serve": cmd_serve,
     }[args.command]
     return handler(cfg, args) or 0
 
@@ -219,6 +224,27 @@ def cmd_evalextract(cfg: Config, args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print("\n".join(report.lines()))
+    return 0
+
+
+def cmd_backup(cfg: Config, args: argparse.Namespace) -> int:
+    from jobhunt.backup import backup
+
+    _connect(cfg).close()
+    result = backup(cfg)
+    print(f"backup {result.at}: {result.status}")
+    return 1 if result.status.startswith("failed") else 0
+
+
+def cmd_restore(cfg: Config, args: argparse.Namespace) -> int:
+    from jobhunt.backup import BackupError, restore
+
+    try:
+        path = restore(cfg, force=args.force)
+    except BackupError as exc:
+        raise SystemExit(str(exc)) from exc
+    _connect(cfg).close()  # applies any migrations newer than the backup
+    print(f"restored {path} from {cfg.backup_dir}")
     return 0
 
 

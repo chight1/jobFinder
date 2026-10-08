@@ -95,6 +95,11 @@ agencies = [
     "computer futures", "agent inc", "global×engineer",
 ]
 
+[backup]
+# A separate private git repo: the database as a text dump plus packets, committed and pushed.
+repo_dir = "../jobFinder-data"
+nightly = true  # back up at the end of every nightly run
+
 [list]
 port = 8765
 follow_up_days = 10

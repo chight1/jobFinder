@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from jobhunt import db, rules, score
+from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
 from jobhunt.config import Config
@@ -62,7 +63,11 @@ def create_app(cfg: Config) -> FastAPI:
             conn.close()
 
     def render(request: Request, name: str, **context: Any) -> HTMLResponse:
-        return templates.TemplateResponse(request, name, {"view": name.removesuffix(".html"), **context})
+        with connection() as conn:
+            counts = _tab_counts(conn)
+        return templates.TemplateResponse(
+            request, name, {"view": name.removesuffix(".html"), "counts": counts, **context}
+        )
 
     @app.get("/")
     def home() -> RedirectResponse:
@@ -196,6 +201,11 @@ def create_app(cfg: Config) -> FastAPI:
             )
         return RedirectResponse("/health", status_code=303)
 
+    @app.post("/backup")
+    def backup_now() -> RedirectResponse:
+        backup(cfg)  # records its own time and result, which Health shows
+        return RedirectResponse("/health", status_code=303)
+
     @app.get("/packets/{job_id}", response_class=HTMLResponse)
     def packet(request: Request, job_id: int) -> HTMLResponse:
         path = cfg.packets_dir / f"{job_id}.md"
@@ -204,6 +214,21 @@ def create_app(cfg: Config) -> FastAPI:
         return render(request, "packet.html", title=f"Packet {job_id}", text=path.read_text(encoding="utf-8"))
 
     return app
+
+
+def _tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """How many records each tab in the top bar holds."""
+    since = db.get_setting(conn, "last_list_visit", "")
+
+    def one(sql: str, *params: Any) -> int:
+        return conn.execute(sql, params).fetchone()[0]
+
+    return {
+        "New": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED} AND j.first_seen_at > ?", since),
+        "All open": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED}"),
+        "Removed": one("SELECT COUNT(*) FROM jobs WHERE stage IN ('code_removed', 'removed')"),
+        "Applied": one("SELECT COUNT(*) FROM jobs WHERE status != 'none'"),
+    }
 
 
 def _jobs(conn: sqlite3.Connection, where: str, params: tuple, order: str) -> list[dict[str, Any]]:
@@ -280,4 +305,7 @@ def _health(conn: sqlite3.Connection, cfg: Config) -> dict[str, Any]:
         "nights": nights,
         "model_flags": model_flags,
         "tiers": tiers,
+        "backup_at": db.get_setting(conn, "last_backup_at"),
+        "backup_status": db.get_setting(conn, "last_backup_status"),
+        "backup_dir": cfg.backup_dir,
     }

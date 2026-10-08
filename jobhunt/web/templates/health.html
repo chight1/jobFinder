@@ -22,6 +22,20 @@
 </section>
 
 <section>
+  <h2>Backup</h2>
+  <p>
+    {% if backup_at %}
+      Last backup {{ backup_at[:16]|replace("T", " ") }} UTC:
+      <span class="{% if backup_status.startswith('failed') %}flag{% endif %}">{{ backup_status }}</span>
+    {% else %}
+      No backup yet.
+    {% endif %}
+    · to {{ backup_dir }}
+  </p>
+  <form method="post" action="/backup"><button>Back up now</button></form>
+</section>
+
+<section>
   <h2>Sources</h2>
   <div class="table-wrap">
   <table>

@@ -19,6 +19,7 @@ from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 from jobhunt import collectors, db, packets, score
+from jobhunt.backup import backup
 from jobhunt.collectors.runner import Runner, Shared, Tally, close_job_if_unseen, record_outcome
 from jobhunt.config import Config
 from jobhunt.dedupe import AgencyIndex, judge_pair, merge_jobs
@@ -82,6 +83,9 @@ def nightly(cfg: Config) -> dict[str, Any]:
         fetch_thread.join()
         counts = finalize(conn, cfg, gaz, run_id, started, results)
         conn.close()
+    if cfg.backup_nightly:
+        result = backup(cfg)
+        log.info("backup: %s", result.status)
     return counts
 
 

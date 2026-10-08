@@ -34,6 +34,8 @@ class Config:
     list: dict[str, Any]
     packets: dict[str, Any]
     profile: Profile
+    backup_dir: Path
+    backup_nightly: bool
 
     @property
     def db_path(self) -> Path:
@@ -80,4 +82,6 @@ def load(root: Path) -> Config:
         list=raw["list"],
         packets=raw["packets"],
         profile=profile,
+        backup_dir=(root / raw["backup"]["repo_dir"]).resolve(),
+        backup_nightly=bool(raw["backup"].get("nightly", False)),
     )

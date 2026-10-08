@@ -342,6 +342,10 @@ Each job marked apply gets a packet in the next model window, or right away with
 
 **Output:** a packets row plus packets/JOB_ID.md, linked from the job's row on the list page.
 
+## Backups
+
+The database and packets are backed up to a separate private repo, jobFinder-data, kept in a folder next to this one ([backup] in config.toml). "jobhunt backup" writes the database as a text SQL dump, so git stores only each night's changed lines, copies packets/, commits and pushes. The nightly run calls it at the end; the Health view has a "Back up now" button and shows the last backup's time and result. The page cache and GeoNames lists are not backed up, since both download again. "jobhunt restore" rebuilds jobhunt.db from the dump and keeps any existing database as jobhunt.db.bak.
+
 ## Health and errors
 
 Every request lands in fetch_log. Every run writes one runs row with its counts: fetched, new sightings, new jobs, removed by code, extracted, removed after extraction, failed, closed.
