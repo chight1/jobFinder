@@ -45,6 +45,23 @@ def test_unknown_view_is_refused(client):
     assert client.get("/api/jobs", params={"view": "everything"}).status_code == 422
 
 
+# --- one job ---
+
+
+def test_job_detail(client):
+    job = client.get("/api/jobs/1").json()
+    assert (job["title"], job["company"], job["stage"], job["score"]) == ("Backend Engineer", "Acme", "kept", 72.5)
+    assert job["evidence"] == {"japanese": "English only"} and "evidence" not in job["facts"]
+    assert job["facts"]["stack"] == ["Go"] and job["score_parts"] == {"pay": 0.4, "location": 1.0}
+    assert [s["primary"] for s in job["sightings"]] == [True] and job["sightings"][0]["source"] == "TokyoDev"
+    assert job["model_calls"][0]["seconds"] == 65.0 and job["description"] == "Build things"
+    assert job["dedupe_key"] == ["acme", "backend engineer", "tokyo"]
+
+
+def test_missing_job_is_404(client):
+    assert client.get("/api/jobs/99").status_code == 404
+
+
 # --- ratings and statuses ---
 
 

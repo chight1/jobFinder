@@ -7,6 +7,7 @@ export const api = createClient<paths>({ baseUrl: "/api" });
 
 type Schemas = components["schemas"];
 export type JobCard = Schemas["JobCard"];
+export type JobDetail = Schemas["JobDetail"];
 export type JobList = Schemas["JobList"];
 export type StatusSaved = Schemas["StatusSaved"];
 export type SkillsPage = Schemas["SkillsPage"];

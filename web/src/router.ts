@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import JobsView from "./views/JobsView.vue";
+import JobView from "./views/JobView.vue";
 import RemovedView from "./views/RemovedView.vue";
 import SkillsView from "./views/SkillsView.vue";
 
@@ -25,6 +26,12 @@ export const router = createRouter({
       props: { view: "not_interested" },
       meta: { title: "Not interested" },
     },
+    {
+      path: "/jobs/:id(\\d+)",
+      component: JobView,
+      props: (route) => ({ id: Number(route.params.id) }),
+      meta: { title: "Job" },
+    },
     { path: "/skills", component: SkillsView, meta: { title: "Skills" } },
     {
       path: "/skills/:key",
@@ -36,5 +43,5 @@ export const router = createRouter({
 });
 
 router.afterEach((to) => {
-  document.title = `${to.meta.title} · jobhunt`;
+  document.title = `${to.meta.title} · jobhunt`; // a page may put a more exact title once its data loads
 });

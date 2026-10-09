@@ -7,8 +7,7 @@ import pytest
 
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/activity", "/activity/live", "/data", "/data?table=sightings&q=Acme", "/data?table=fetch_log",
-     "/jobs/1"],
+    ["/health", "/activity", "/activity/live", "/data", "/data?table=sightings&q=Acme", "/data?table=fetch_log"],
 )
 def test_page_renders(client, path):
     response = client.get(path)
@@ -17,11 +16,6 @@ def test_page_renders(client, path):
 
 def test_home_is_the_vue_app(client):
     assert client.get("/", follow_redirects=False).headers["location"] == "/app/new"
-
-
-def test_job_page_shows_facts_and_calls(client):
-    page = client.get("/jobs/1").text
-    assert "Backend Engineer" in page and "English only" in page and "65.0 s" in page
 
 
 def test_activity_shows_the_running_worker(client):

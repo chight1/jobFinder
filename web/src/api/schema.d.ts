@@ -45,6 +45,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job
+         * @description Everything known about one job: state, score parts, the model's facts and evidence, every place
+         *     it was seen, its model calls and duplicate checks, and the description.
+         */
+        get: operations["job_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/seen": {
         parameters: {
             query?: never;
@@ -192,6 +213,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** DupePair */
+        DupePair: {
+            /** Job A */
+            job_a: number;
+            /** Job B */
+            job_b: number;
+            /**
+             * Verdict
+             * @description same, different or probably_same; null while waiting for the model
+             */
+            verdict: string | null;
+            /** Decided By */
+            decided_by: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -271,6 +306,99 @@ export interface components {
             /** Skills */
             skills: components["schemas"]["SkillChip"][];
         };
+        /**
+         * JobDetail
+         * @description Everything known about one job, for its page.
+         */
+        JobDetail: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+            /** Company */
+            company: string;
+            /** Location */
+            location: string;
+            /** Badges */
+            badges: string[];
+            /** Stage */
+            stage: string;
+            /** Closed At */
+            closed_at: string | null;
+            /** Removal Rule */
+            removal_rule: string | null;
+            /** Removal Quote */
+            removal_quote: string | null;
+            /**
+             * Restored Rules
+             * @description Removal rules this job was restored from; they never remove it again
+             */
+            restored_rules: string[];
+            /** Rating */
+            rating: ("green" | "yellow" | "red") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "apply" | "applied" | "interviewing" | "rejected" | "ghosted" | "not_interested";
+            /** Status At */
+            status_at: string | null;
+            /** Follow Up On */
+            follow_up_on: string | null;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Listed At */
+            listed_at: string | null;
+            /**
+             * Prescore
+             * @description Queue order for the model
+             */
+            prescore: number;
+            /**
+             * Dedupe Key
+             * @description Normalized company, title and city: equal keys are the same job
+             */
+            dedupe_key: string[];
+            /** Score */
+            score: number | null;
+            /** Score Parts */
+            score_parts: {
+                [key: string]: number;
+            };
+            /** Reason Line */
+            reason_line: string | null;
+            /**
+             * Facts
+             * @description What the model read from the posting, evidence aside
+             */
+            facts: {
+                [key: string]: unknown;
+            };
+            /**
+             * Evidence
+             * @description The model's quote behind each removal-relevant fact
+             */
+            evidence: {
+                [key: string]: string;
+            };
+            /** Sightings */
+            sightings: components["schemas"]["SightingRow"][];
+            /**
+             * Source Fields
+             * @description The primary sighting's own fields from its source
+             */
+            source_fields: {
+                [key: string]: unknown;
+            };
+            /** Model Calls */
+            model_calls: components["schemas"]["ModelCall"][];
+            /** Pairs */
+            pairs: components["schemas"]["DupePair"][];
+            /** Description */
+            description: string;
+        };
         /** JobList */
         JobList: {
             /** Jobs */
@@ -292,6 +420,22 @@ export interface components {
             name: string;
             /** Url */
             url: string;
+        };
+        /** ModelCall */
+        ModelCall: {
+            /** At */
+            at: string;
+            /**
+             * Kind
+             * @description extract, dupe or packet
+             */
+            kind: string;
+            /** Seconds */
+            seconds: number | null;
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error: string | null;
         };
         /** ProfileSkill */
         ProfileSkill: {
@@ -327,6 +471,32 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+        };
+        /** SightingRow */
+        SightingRow: {
+            /** Id */
+            id: number;
+            /** Source */
+            source: string;
+            /** Url */
+            url: string;
+            /** Title */
+            title: string;
+            /** Company */
+            company: string;
+            /** Location */
+            location: string;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Last Seen At */
+            last_seen_at: string;
+            /** Closed At */
+            closed_at: string | null;
+            /**
+             * Primary
+             * @description The sighting whose link and text the job shows
+             */
+            primary: boolean;
         };
         /** SkillChip */
         SkillChip: {
@@ -520,6 +690,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
                 };
             };
             /** @description Validation Error */

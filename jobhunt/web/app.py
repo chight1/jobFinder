@@ -86,14 +86,6 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         return render(request, "data.html", title="Data", table=table, q=q, page=max(1, page),
                       table_counts=counts, **contents)
 
-    @app.get("/jobs/{job_id}", response_class=HTMLResponse)
-    def job(request: Request, job_id: int) -> HTMLResponse:
-        with connection() as conn:
-            detail = inspect.job_detail(conn, job_id)
-        if detail is None:
-            raise HTTPException(404, f"no job #{job_id}")
-        return render(request, "job.html", title=f"Job #{job_id}", **detail)
-
     @app.get("/activity", response_class=HTMLResponse)
     def activity(request: Request) -> HTMLResponse:
         with connection() as conn:

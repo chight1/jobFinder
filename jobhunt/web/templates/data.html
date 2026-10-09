@@ -28,8 +28,8 @@
       {% for value in row %}
         {% set column = columns[loop.index0] %}
         <td>
-          {%- if value and ((table == "jobs" and column == "id") or column in ("job_id", "job_a", "job_b", "winner")) -%}
-            <a href="/jobs/{{ value }}">{{ value }}</a>
+          {%- if value and ((table == "jobs" and column == "id") or column in ("job_id", "job_a", "job_b")) -%}
+            <a href="/app/jobs/{{ value }}">{{ value }}</a>
           {%- else -%}{{ value }}{%- endif -%}
         </td>
       {% endfor %}

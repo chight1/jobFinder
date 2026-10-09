@@ -309,7 +309,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | View | Shows |
 | --- | --- |
 | New (Vue) | jobs first seen since the last visit, by score |
-| All open (Vue) | every kept, open job, by score |
+| All open (Vue) | every kept, open job, by score; the top 20 tinted blue |
 | Japanese (Vue) | open jobs that pass every rule but require Japanese, by score |
 | Removed (Vue) | removed jobs, filterable by rule (kept in the URL), each with its quote and a restore button |
 | Applied (Vue) | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
@@ -319,7 +319,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
 | Skills (Vue) | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; the filters are in the URL; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
-| Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
+| Job (#id) (Vue) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 
 The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 

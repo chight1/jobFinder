@@ -5,6 +5,7 @@
   --muted: #78716c;
   --line: #e7e5e4;
   --accent: #1d4ed8;
+  --top: #eff6ff;
   --flag: #b91c1c;
   --unicorn: #7c3aed;
   --check: #b45309;
@@ -22,6 +23,7 @@
     --muted: #a8a29e;
     --line: #292524;
     --accent: #93c5fd;
+    --top: #172033;
     --flag: #f87171;
     --unicorn: #c4b5fd;
     --check: #fbbf24;
@@ -84,6 +86,8 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 
 .job { position: relative; }
 
+.job.top { background: var(--top); }  /* All open's 20 best by score */
+
 /* Rating: three dots in the top-right corner; a rated tile gets a colored left edge. */
 .rate { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
 .dot {
@@ -97,6 +101,7 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 }
 .dot:hover { opacity: 1; border-color: var(--dot); }
 .dot[aria-pressed="true"] { background: var(--dot); opacity: 1; }
+.dot.inline { display: inline-block; vertical-align: middle; }  /* in text, as on the job page */
 .dot.green { --dot: var(--rate-green); }
 .dot.yellow { --dot: var(--rate-yellow); }
 .dot.red { --dot: var(--rate-red); }

@@ -6,7 +6,7 @@ import { RATINGS, type Rating } from "../jobs";
 
 // One job: score, title, badges, the facts that matter, where it was seen and the skills it asks for.
 // The rating dots save at once; each page puts its own actions (status buttons, restore) in the slot.
-const props = defineProps<{ job: JobCard; fresh?: boolean }>();
+const props = defineProps<{ job: JobCard; top?: boolean; fresh?: boolean }>();
 const rating = ref(props.job.rating);
 watch(
   () => props.job.rating,
@@ -27,7 +27,7 @@ async function rate(color: Rating) {
 </script>
 
 <template>
-  <article class="job" :class="{ fresh }" :data-rating="rating ?? ''">
+  <article class="job" :class="{ top, fresh }" :data-rating="rating ?? ''">
     <div class="score">{{ Math.round(job.score ?? 0) }}</div>
     <div class="body">
       <div class="rate" role="group" aria-label="Rate this job">
@@ -60,7 +60,7 @@ async function rate(color: Rating) {
         </template>
         <template v-for="same in job.probably_same" :key="same"> · probably the same as #{{ same }}</template>
         <template v-if="job.has_packet"> · <a :href="`/packets/${job.id}`">packet</a></template>
-        · <a :href="`/jobs/${job.id}`">#{{ job.id }} details</a>
+        · <RouterLink :to="`/jobs/${job.id}`">#{{ job.id }} details</RouterLink>
       </p>
       <p v-if="job.skills.length" class="skills">
         <RouterLink

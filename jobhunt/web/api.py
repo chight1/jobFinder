@@ -133,6 +133,68 @@ class JobList(BaseModel):
     rules: list[str] = Field(description="Removed: every removal rule, for the filter")
 
 
+class SightingRow(BaseModel):
+    id: int
+    source: str
+    url: str
+    title: str
+    company: str
+    location: str
+    first_seen_at: str
+    last_seen_at: str
+    closed_at: str | None
+    primary: bool = Field(description="The sighting whose link and text the job shows")
+
+
+class ModelCall(BaseModel):
+    at: str
+    kind: str = Field(description="extract, dupe or packet")
+    seconds: float | None
+    ok: bool
+    error: str | None
+
+
+class DupePair(BaseModel):
+    job_a: int
+    job_b: int
+    verdict: str | None = Field(description="same, different or probably_same; null while waiting for the model")
+    decided_by: str | None
+
+
+class JobDetail(BaseModel):
+    """Everything known about one job, for its page."""
+
+    id: int
+    title: str
+    url: str | None
+    company: str
+    location: str
+    badges: list[str]
+    stage: str
+    closed_at: str | None
+    removal_rule: str | None
+    removal_quote: str | None
+    restored_rules: list[str] = Field(description="Removal rules this job was restored from; they never remove it again")
+    rating: Rating | None
+    status: Status
+    status_at: str | None
+    follow_up_on: str | None
+    first_seen_at: str
+    listed_at: str | None
+    prescore: float = Field(description="Queue order for the model")
+    dedupe_key: list[str] = Field(description="Normalized company, title and city: equal keys are the same job")
+    score: float | None
+    score_parts: dict[str, float]
+    reason_line: str | None
+    facts: dict[str, Any] = Field(description="What the model read from the posting, evidence aside")
+    evidence: dict[str, str] = Field(description="The model's quote behind each removal-relevant fact")
+    sightings: list[SightingRow]
+    source_fields: dict[str, Any] = Field(description="The primary sighting's own fields from its source")
+    model_calls: list[ModelCall]
+    pairs: list[DupePair]
+    description: str
+
+
 class StatusChange(BaseModel):
     status: Status
 
@@ -275,6 +337,53 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             rule_names = [r[0] for r in conn.execute(
                 "SELECT DISTINCT removal_rule FROM jobs WHERE removal_rule IS NOT NULL ORDER BY 1")]
         return JobList(jobs=found, now=now, rules=rule_names)
+
+    @api.get("/jobs/{job_id}")
+    def job(job_id: int, conn: Conn) -> JobDetail:
+        """Everything known about one job: state, score parts, the model's facts and evidence, every place
+        it was seen, its model calls and duplicate checks, and the description."""
+        detail = inspect.job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(404, f"no job #{job_id}")
+        job, primary, facts = detail["job"], detail["primary"], dict(detail["facts"])
+        return JobDetail(
+            id=job_id,
+            title=primary["title"] if primary else "",
+            url=primary["url"] if primary else None,
+            company=primary["company_raw"] if primary else "",
+            location=primary["location_raw"] if primary else "",
+            badges=detail["badges"],
+            stage=job["stage"],
+            closed_at=job["closed_at"],
+            removal_rule=job["removal_rule"],
+            removal_quote=job["removal_quote"],
+            restored_rules=detail["restored_rules"],
+            rating=job["rating"],
+            status=job["status"],
+            status_at=job["status_at"],
+            follow_up_on=job["follow_up_on"],
+            first_seen_at=job["first_seen_at"],
+            listed_at=job["listed_at"],
+            prescore=job["prescore"],
+            dedupe_key=[job["company_norm"], job["title_norm"], job["city_norm"]],
+            score=job["score"],
+            score_parts=detail["score_parts"],
+            reason_line=job["reason_line"],
+            evidence=facts.pop("evidence", None) or {},
+            facts=facts,
+            sightings=[
+                SightingRow(id=s["id"], source=s["source_name"], url=s["url"], title=s["title"],
+                            company=s["company_raw"], location=s["location_raw"], first_seen_at=s["first_seen_at"],
+                            last_seen_at=s["last_seen_at"], closed_at=s["closed_at"],
+                            primary=bool(primary) and s["id"] == primary["id"])
+                for s in detail["sightings"]
+            ],
+            source_fields=primary["fields"] if primary else {},
+            model_calls=[ModelCall(**dict(call)) for call in detail["model_calls"]],
+            pairs=[DupePair(job_a=p["job_a"], job_b=p["job_b"], verdict=p["verdict"], decided_by=p["decided_by"])
+                   for p in detail["pairs"]],
+            description=detail["description"],
+        )
 
     @api.post("/seen", status_code=204)
     def seen(conn: Conn) -> None:

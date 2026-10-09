@@ -40,7 +40,7 @@
         <td>{{ e.what }}</td>
         <td>{{ "%.1f"|format(e.seconds or 0) }}</td>
         <td class="detail">
-          {%- if e.kind == "model" and e.detail -%}<a href="/jobs/{{ e.detail[1:] }}">{{ e.detail }}</a>
+          {%- if e.kind == "model" and e.detail -%}<a href="/app/jobs/{{ e.detail[1:] }}">{{ e.detail }}</a>
           {%- else -%}{{ e.detail }}{%- endif -%}
           {%- if e.error %} · {{ e.error }}{% endif -%}
         </td>

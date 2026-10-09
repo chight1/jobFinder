@@ -72,15 +72,16 @@ def job_detail(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
         "WHERE s.job_id = ? ORDER BY s.id = ? DESC, s.first_seen_at",
         (job_id, job["primary_sighting_id"]),
     ).fetchall()
-    primary = next((s for s in sightings if s["id"] == job["primary_sighting_id"]), None)
+    rows = [dict(s) | {"fields": db.loads(s["source_fields"], {})} for s in sightings]
+    primary = next((s for s in rows if s["id"] == job["primary_sighting_id"]), None)
     return {
         "job": dict(job),
         "facts": db.loads(job["facts"], {}) or {},
         "score_parts": db.loads(job["score_parts"], {}) or {},
         "badges": db.loads(job["badges"], []),
         "restored_rules": db.loads(job["restored_rules"], []),
-        "sightings": [dict(s) | {"fields": db.loads(s["source_fields"], {})} for s in sightings],
-        "primary": dict(primary) if primary else None,
+        "sightings": rows,
+        "primary": primary,
         "description": to_text(primary["description"]) if primary else "",
         "model_calls": conn.execute(
             "SELECT kind, seconds, ok, at, error FROM llm_log WHERE job_id = ? ORDER BY id", (job_id,)
