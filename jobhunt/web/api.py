@@ -4,16 +4,56 @@ until one has, its server-rendered version in app.py stays. Interactive docs at 
 No `from __future__ import annotations` here: FastAPI reads the route signatures, and Conn is local to
 create_api, which string annotations could not reach."""
 
+import logging
 import sqlite3
-from typing import Annotated, Callable, Iterator, Literal
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+from typing import Annotated, Any, Callable, Iterator, Literal, get_args
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from jobhunt import db, profile_file, score
+from jobhunt import db, profile_file, rules, score
+from jobhunt.collectors import PostingGone
+from jobhunt.collectors.runner import fill_detail
 from jobhunt.config import Config, reload_skills
+from jobhunt.fetch import Fetcher, FetchError
 from jobhunt.rules import Gazetteer
+from jobhunt.text import to_text
 from jobhunt.web import inspect
+
+log = logging.getLogger(__name__)
+
+Status = Literal["none", "apply", "applied", "interviewing", "rejected", "ghosted", "not_interested"]
+Rating = Literal["green", "yellow", "red"]
+View = Literal["new", "all", "japanese", "removed", "applied", "not_interested"]
+
+APPLIED_STATUSES = tuple(s for s in get_args(Status) if s not in ("none", "not_interested"))
+_OPEN = "j.closed_at IS NULL AND j.status = 'none'"
+_LISTED = f"j.stage IN ('kept', 'extract_failed') AND {_OPEN}"  # New and All open
+_WHERE: dict[str, str] = {
+    "new": _LISTED,  # and first seen since the last visit, added in /jobs
+    "all": _LISTED,
+    "japanese": f"j.stage = 'japanese' AND {_OPEN}",  # the backup list
+    "removed": "j.stage IN ('code_removed', 'removed')",
+    "applied": f"j.status IN ({', '.join(repr(s) for s in APPLIED_STATUSES)})",
+    "not_interested": "j.status = 'not_interested'",
+}
+_ORDER: dict[str, str] = {
+    "removed": "j.first_seen_at DESC LIMIT 500",
+    "applied": "j.status_at DESC",
+    "not_interested": "j.status_at DESC",
+}
+_JOB_COLUMNS = """
+    SELECT j.*, s.title, s.company_raw, s.location_raw, s.url, src.name AS source_name,
+           EXISTS (SELECT 1 FROM packets p WHERE p.job_id = j.id) AS has_packet
+    FROM jobs j
+    JOIN sightings s ON s.id = j.primary_sighting_id
+    JOIN sources src ON src.id = s.source_id
+"""
+
+
+# --- models ------------------------------------------------------------------------------------
 
 
 class SkillRow(BaseModel):
@@ -49,12 +89,100 @@ class SkillLevelSaved(BaseModel):
     rescored: int = Field(description="How many jobs were rescored with the new level")
 
 
-def create_api(
-    cfg: Config,
-    gazetteer: Callable[[], Gazetteer],
-    tab_counts: Callable[[sqlite3.Connection], dict[str, int]],
-) -> FastAPI:
-    """gazetteer loads GeoNames on first need; tab_counts is the top bar's, shared with the old pages."""
+class Link(BaseModel):
+    name: str
+    url: str
+
+
+class SkillChip(BaseModel):
+    name: str = Field(description="As the posting spells it")
+    key: str = Field(description="The merged name, for the skill's job list")
+    level: int = Field(description="Your level in it; 0 when it is not in your profile")
+
+
+class JobCard(BaseModel):
+    """One job as a tile shows it."""
+
+    id: int
+    title: str
+    url: str = Field(description="The primary sighting's link")
+    company: str
+    work_mode: str | None
+    place: str = Field(description="The office city, else the posting's location; empty when neither is given")
+    pay: str = Field(description="In the posting's currency and in dollars, e.g. '9,000,000 JPY/year ($60k)'")
+    primary_language: str | None
+    score: float | None
+    reason_line: str | None
+    badges: list[str]
+    rating: Rating | None
+    status: Status
+    status_at: str | None
+    follow_up_on: str | None = Field(description="ISO date to follow up an application")
+    removal_rule: str | None
+    removal_quote: str | None
+    source: str = Field(description="Where the primary sighting was seen")
+    others: list[Link] = Field(description="Other places the same job was seen")
+    probably_same: list[int] = Field(description="Jobs judged probably the same position")
+    has_packet: bool
+    skills: list[SkillChip]
+
+
+class JobList(BaseModel):
+    jobs: list[JobCard]
+    now: str = Field(description="Pass back as `after` to get only the jobs listed since")
+    rules: list[str] = Field(description="Removed: every removal rule, for the filter")
+
+
+class StatusChange(BaseModel):
+    status: Status
+
+
+class StatusSaved(BaseModel):
+    status: Status
+    status_at: str | None
+    follow_up_on: str | None
+    counts: dict[str, int] = Field(description="The top bar's counts after the change")
+
+
+class RatingChange(BaseModel):
+    rating: Rating
+
+
+class RatingSaved(BaseModel):
+    rating: Rating | None = Field(description="null when the same color was picked again, which clears it")
+
+
+class Restored(BaseModel):
+    stage: str = Field(description="queued for a code-removed job, else the stage its facts now give")
+    counts: dict[str, int]
+
+
+# --- shared with the server-rendered pages ----------------------------------------------------------
+
+
+def tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """How many records each tab in the top bar holds."""
+    since = db.get_setting(conn, "last_list_visit", "")
+
+    def one(sql: str, *params: Any) -> int:
+        return conn.execute(sql, params).fetchone()[0]
+
+    return {
+        "New": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED} AND j.first_seen_at > ?", since),
+        "All open": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['all']}"),
+        "Japanese": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['japanese']}"),
+        "Removed": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['removed']}"),
+        "Applied": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['applied']}"),
+        "Not interested": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['not_interested']}"),
+        "Skills": inspect.distinct_skill_count(conn),
+    }
+
+
+# --- the API ---------------------------------------------------------------------------------------
+
+
+def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
+    """gazetteer loads GeoNames on first need."""
     api = FastAPI(title="jobhunt API", docs_url="/docs", redoc_url=None)
 
     def connection() -> Iterator[sqlite3.Connection]:
@@ -66,10 +194,164 @@ def create_api(
 
     Conn = Annotated[sqlite3.Connection, Depends(connection)]
 
+    def cards(conn: sqlite3.Connection, where: str, params: list[Any], order: str) -> list[JobCard]:
+        """Tiles for the jobs matching where, with other sightings and probable duplicates attached."""
+        rows = conn.execute(f"{_JOB_COLUMNS} WHERE {where} ORDER BY {order}", params).fetchall()
+        if not rows:
+            return []
+        ids = [r["id"] for r in rows]
+        marks = ",".join("?" * len(ids))
+        others: dict[int, list[Link]] = defaultdict(list)
+        for s in conn.execute(
+            f"SELECT s.job_id, s.url, src.name FROM sightings s JOIN sources src ON src.id = s.source_id "
+            f"JOIN jobs j ON j.id = s.job_id WHERE s.job_id IN ({marks}) AND s.id != j.primary_sighting_id",
+            ids,
+        ):
+            others[s["job_id"]].append(Link(name=s["name"], url=s["url"]))
+        probably: dict[int, list[int]] = defaultdict(list)
+        for p in conn.execute(
+            f"SELECT job_a, job_b FROM dupe_pairs WHERE verdict = 'probably_same' AND job_b IN ({marks})", ids
+        ):
+            probably[p["job_b"]].append(p["job_a"])
+        return [card(row, others[row["id"]], probably[row["id"]]) for row in rows]
+
+    def card(row: sqlite3.Row, others: list[Link], probably_same: list[int]) -> JobCard:
+        facts = db.loads(row["facts"], {}) or {}
+        usd = score.annual_usd(facts.get("pay_min"), facts.get("pay_max"), facts.get("pay_currency"),
+                               facts.get("pay_period"), cfg.currency)
+        return JobCard(
+            id=row["id"],
+            title=row["title"],
+            url=row["url"],
+            company=row["company_raw"],
+            work_mode=facts.get("work_mode"),
+            place=facts.get("office_city") or row["location_raw"] or "",
+            pay=score.pay_text(facts, usd),
+            primary_language=facts.get("primary_language"),
+            score=row["score"],
+            reason_line=row["reason_line"],
+            badges=db.loads(row["badges"], []),
+            rating=row["rating"],
+            status=row["status"],
+            status_at=row["status_at"],
+            follow_up_on=row["follow_up_on"],
+            removal_rule=row["removal_rule"],
+            removal_quote=row["removal_quote"],
+            source=row["source_name"],
+            others=others,
+            probably_same=probably_same,
+            has_packet=bool(row["has_packet"]),
+            skills=[
+                SkillChip(name=s, key=score.canonical_skill(s), level=score.skill_level(s, cfg.profile))
+                for s in facts.get("stack") or [] if s.strip()
+            ],
+        )
+
     @api.get("/tabs")
     def tabs(conn: Conn) -> dict[str, int]:
         """How many records each tab in the top bar holds."""
         return tab_counts(conn)
+
+    # --- job lists ---
+
+    @api.get("/jobs")
+    def jobs(conn: Conn, view: View, rule: str | None = None, after: str | None = None) -> JobList:
+        """One tab's jobs. rule narrows Removed to one removal rule. after (an earlier reply's `now`) narrows
+        New and All open to the jobs listed since, for an open page to add as the model finishes them."""
+        now = db.utc_now()
+        where, params = _WHERE[view], []
+        if view == "new":
+            where += " AND j.first_seen_at > ?"
+            params.append(db.get_setting(conn, "last_list_visit", ""))
+        if after:
+            where += " AND j.listed_at > ? AND j.listed_at <= ?"
+            params += [after, now]
+        if view == "removed" and rule:
+            where += " AND j.removal_rule = ?"
+            params.append(rule)
+        found = cards(conn, where, params, _ORDER.get(view, "j.score DESC"))
+        rule_names = []
+        if view == "removed":
+            rule_names = [r[0] for r in conn.execute(
+                "SELECT DISTINCT removal_rule FROM jobs WHERE removal_rule IS NOT NULL ORDER BY 1")]
+        return JobList(jobs=found, now=now, rules=rule_names)
+
+    @api.post("/seen", status_code=204)
+    def seen(conn: Conn) -> None:
+        """Mark everything seen: New then holds only jobs first seen after now."""
+        db.set_setting(conn, "last_list_visit", db.utc_now())
+
+    @api.post("/jobs/{job_id}/status")
+    def set_status(job_id: int, body: StatusChange, conn: Conn) -> StatusSaved:
+        """Set a job's status. "none" clears it, and the job goes back to the lists as if never marked.
+        Marking a job applied sets a follow-up date."""
+        if body.status == "none":
+            conn.execute("UPDATE jobs SET status = 'none', status_at = NULL, follow_up_on = NULL WHERE id = ?",
+                         (job_id,))
+        else:
+            follow_up = None
+            if body.status == "applied":
+                follow_up = (date.today() + timedelta(days=int(cfg.list["follow_up_days"]))).isoformat()
+            conn.execute(
+                "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = COALESCE(?, follow_up_on) WHERE id = ?",
+                (body.status, db.utc_now(), follow_up, job_id),
+            )
+        row = conn.execute("SELECT status_at, follow_up_on FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"no job #{job_id}")
+        return StatusSaved(status=body.status, status_at=row["status_at"], follow_up_on=row["follow_up_on"],
+                           counts=tab_counts(conn))
+
+    @api.post("/jobs/{job_id}/rating")
+    def set_rating(job_id: int, body: RatingChange, conn: Conn) -> RatingSaved:
+        """Mark how much the candidate likes a job. Picking the current color again clears it."""
+        row = conn.execute("SELECT rating FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"no job #{job_id}")
+        new = None if row["rating"] == body.rating else body.rating
+        conn.execute("UPDATE jobs SET rating = ? WHERE id = ?", (new, job_id))
+        return RatingSaved(rating=new)
+
+    @api.post("/jobs/{job_id}/restore")
+    def restore(job_id: int, conn: Conn) -> Restored:
+        """Put a removed job back; the same rule never removes it again. A job the model read is judged
+        again from its facts; a code-removed one goes to the model queue."""
+        job = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if job is None or job["stage"] not in ("code_removed", "removed"):
+            raise HTTPException(404, "no removed job with that id")
+        restored = db.dumps(sorted(set(db.loads(job["restored_rules"], [])) | {job["removal_rule"]}))
+        if job["stage"] == "removed":
+            with db.transaction(conn):
+                conn.execute("UPDATE jobs SET restored_rules = ? WHERE id = ?", (restored, job_id))
+                stage = score.apply_facts(conn, conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone(),
+                                          cfg, gazetteer())
+        else:
+            requeue(conn, job, restored)
+            stage = "queued"
+        return Restored(stage=stage, counts=tab_counts(conn))
+
+    def requeue(conn: sqlite3.Connection, job: sqlite3.Row, restored: str) -> None:
+        """A code-removed job goes to the model queue, with the description it never had and a fresh prescore."""
+        fetcher = Fetcher(cfg, run_started=datetime.now().astimezone())
+        try:
+            fill_detail(conn, fetcher, job["primary_sighting_id"])
+        except (FetchError, PostingGone) as exc:
+            log.warning("restore of job %s: detail fetch failed: %r", job["id"], exc)
+        finally:
+            fetcher.close()
+        sighting = conn.execute("SELECT * FROM sightings WHERE id = ?", (job["primary_sighting_id"],)).fetchone()
+        prescore = rules.prescore(
+            title=sighting["title"], location=sighting["location_raw"], posted_at=sighting["posted_at"],
+            fields=db.loads(sighting["source_fields"], {}), gaz=gazetteer(), profile=cfg.profile, rates=cfg.currency,
+            description_text=to_text(sighting["description"]),
+        )
+        conn.execute(
+            "UPDATE jobs SET stage = 'queued', removal_rule = NULL, removal_quote = NULL, restored_rules = ?, "
+            "prescore = ? WHERE id = ?",
+            (restored, prescore, job["id"]),
+        )
+
+    # --- skills ---
 
     @api.get("/skills")
     def skills(conn: Conn, scope: Literal["kept", "all"] = "kept", japanese: bool = False) -> SkillsPage:
@@ -83,6 +365,13 @@ def create_api(
             unseen=[ProfileSkill(name=n, level=lvl) for n, lvl in inspect.unseen_skills(cfg.profile, stats)],
             levels=list(profile_file.LEVELS),
         )
+
+    @api.get("/skills/{key}/jobs")
+    def skill_jobs(key: str, conn: Conn, japanese: bool = False) -> JobList:
+        """The open kept jobs that ask for one skill (any spelling), best first; the Japanese ones too when asked."""
+        ids = inspect.job_ids_with_skill(conn, score.canonical_skill(key), japanese=japanese)
+        found = cards(conn, f"j.id IN ({','.join('?' * len(ids))})", ids, "j.score DESC") if ids else []
+        return JobList(jobs=found, now=db.utc_now(), rules=[])
 
     @api.post("/skills/level")
     def set_skill_level(body: SkillLevel, conn: Conn) -> SkillLevelSaved:

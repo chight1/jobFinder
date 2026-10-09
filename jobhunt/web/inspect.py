@@ -15,7 +15,7 @@ from jobhunt.text import to_text
 
 # Tables shown on the Data page, most useful first.
 TABLES = (
-    "jobs", "sightings", "sources", "companies", "dupe_pairs", "comparisons", "packets",
+    "jobs", "sightings", "sources", "companies", "dupe_pairs", "packets",
     "fetch_log", "llm_log", "runs", "activity", "settings", "company_aliases",
 )
 PAGE_SIZE = 50
@@ -87,9 +87,6 @@ def job_detail(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
         ).fetchall(),
         "pairs": conn.execute(
             "SELECT * FROM dupe_pairs WHERE job_a = ? OR job_b = ?", (job_id, job_id)
-        ).fetchall(),
-        "comparisons": conn.execute(
-            "SELECT * FROM comparisons WHERE job_a = ? OR job_b = ? ORDER BY decided_at", (job_id, job_id)
         ).fetchall(),
     }
 

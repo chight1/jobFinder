@@ -5,7 +5,6 @@
   --muted: #78716c;
   --line: #e7e5e4;
   --accent: #1d4ed8;
-  --top: #eff6ff;
   --flag: #b91c1c;
   --unicorn: #7c3aed;
   --check: #b45309;
@@ -23,7 +22,6 @@
     --muted: #a8a29e;
     --line: #292524;
     --accent: #93c5fd;
-    --top: #172033;
     --flag: #f87171;
     --unicorn: #c4b5fd;
     --check: #fbbf24;
@@ -84,7 +82,6 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
   border-radius: 8px;
 }
 
-.job.top { background: var(--top); }
 .job { position: relative; }
 
 /* Rating: three dots in the top-right corner; a rated tile gets a colored left edge. */

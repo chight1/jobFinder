@@ -85,9 +85,6 @@
   {% for p in pairs %}
   <p class="meta">Possible duplicate: <a href="/jobs/{{ p.job_a }}">#{{ p.job_a }}</a> / <a href="/jobs/{{ p.job_b }}">#{{ p.job_b }}</a> · {{ p.verdict or "waiting for the model" }}{% if p.decided_by %} ({{ p.decided_by }}){% endif %}</p>
   {% endfor %}
-  {% for c in comparisons %}
-  <p class="meta">Compared <a href="/jobs/{{ c.job_a }}">#{{ c.job_a }}</a> with <a href="/jobs/{{ c.job_b }}">#{{ c.job_b }}</a>: winner #{{ c.winner }}, “{{ c.why }}”</p>
-  {% endfor %}
 </section>
 
 <section>

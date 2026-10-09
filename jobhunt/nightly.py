@@ -300,17 +300,16 @@ def _looks_closed(requested: str, final: str, status: int, text: str) -> bool:
 # --- model worker -----------------------------------------------------------------------------
 
 
-Task = tuple[str, Any]  # ("packet", job_id), ("pair", (a, b)), ("extract", job_id), ("compare", (a, b))
+Task = tuple[str, Any]  # ("packet", job_id), ("pair", (a, b)), ("extract", job_id)
 
 
 def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, fetch_done: threading.Event | None = None) -> dict[str, int]:
     """Take model work by priority until stop_at; starts no new call after it.
 
-    1. packets for jobs marked apply  2. borderline duplicate pairs
-    3. extraction, highest prescore first  4. comparator pairs in the top 20
+    1. packets for jobs marked apply  2. borderline duplicate pairs  3. extraction, highest prescore first
     A task that fails is skipped for the rest of the run; only a failing server stops the worker.
     """
-    counts = {"packets": 0, "pairs": 0, "extracted": 0, "extract_failed": 0, "removed": 0, "comparisons": 0}
+    counts = {"packets": 0, "pairs": 0, "extracted": 0, "extract_failed": 0, "removed": 0}
     with _model_lock(cfg.db_path.parent / "model.lock") as only_worker:
         if not only_worker:
             log.info("a model worker is already running; the queue is left to it")
@@ -359,7 +358,7 @@ def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, fetch_done: threadi
     try:
         while time.time() < stop_at:
             reload_skills(cfg)  # levels changed on the Skills page apply from the next job on
-            task = _next_task(conn, cfg, skipped)
+            task = _next_task(conn, skipped)
             if task is None:
                 if fetch_done is None or fetch_done.is_set():
                     break
@@ -383,7 +382,7 @@ def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, fetch_done: threadi
     return counts
 
 
-def _next_task(conn: sqlite3.Connection, cfg: Config, skipped: set[Task]) -> Task | None:
+def _next_task(conn: sqlite3.Connection, skipped: set[Task]) -> Task | None:
     """The single most important piece of model work not yet skipped this run."""
     for row in conn.execute(
         "SELECT id FROM jobs WHERE status = 'apply' AND id NOT IN (SELECT job_id FROM packets) ORDER BY status_at"
@@ -398,9 +397,6 @@ def _next_task(conn: sqlite3.Connection, cfg: Config, skipped: set[Task]) -> Tas
     ).fetchone()
     if job:
         return "extract", job["id"]  # a failed extraction leaves the queue, so it is never offered twice
-    for pair in score.pending_pairs(conn, int(cfg.score["top_n"])):
-        if ("compare", pair) not in skipped:
-            return "compare", pair
     return None
 
 
@@ -418,9 +414,7 @@ def _describe(conn: sqlite3.Connection, task: Task) -> str:
         return f"drafting a packet for {title(target)}"
     if kind == "pair":
         return f"deciding whether #{target[0]} and #{target[1]} are the same job"
-    if kind == "extract":
-        return f"extracting {title(target)}"
-    return f"comparing #{target[0]} with #{target[1]}"
+    return f"extracting {title(target)}"
 
 
 def _run_task(conn: sqlite3.Connection, llm: LLM, cfg: Config, gaz: Gazetteer, task: Task, counts: dict[str, int]) -> None:
@@ -440,9 +434,6 @@ def _run_task(conn: sqlite3.Connection, llm: LLM, cfg: Config, gaz: Gazetteer, t
         counts["pairs"] += 1
     elif kind == "extract":
         extract_job(conn, llm, cfg, gaz, target, counts)
-    elif kind == "compare":
-        score.compare(conn, llm, cfg, *target)
-        counts["comparisons"] += 1
 
 
 def extract_job(

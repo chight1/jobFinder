@@ -38,7 +38,6 @@ retry_waits_s = [30, 120, 300]
 
 [score]
 weights = { pay = 0.40, location = 0.20, stack = 0.20, seniority = 0.10, balance = 0.10 }
-top_n = 20
 
 [score.pay]
 full_usd = 120000

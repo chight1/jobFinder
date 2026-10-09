@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import { api, type SkillsPage } from "../api/client";
 import LevelPicker from "../components/LevelPicker.vue";
 import QueryLink from "../components/QueryLink.vue";
@@ -40,8 +40,10 @@ async function addSkill() {
   await load(); // the new skill shows in whichever table it belongs to
 }
 
-// The jobs asking for a skill are still a server-rendered page.
-const jobsLink = (key: string) => `/skills/${encodeURIComponent(key)}${japanese.value ? "?japanese=1" : ""}`;
+const jobsLink = (key: string) => ({
+  path: `/skills/${encodeURIComponent(key)}`,
+  query: japanese.value ? { japanese: "1" } : {},
+});
 const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
 </script>
 
@@ -84,7 +86,7 @@ const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
           </thead>
           <tbody>
             <tr v-for="skill in page.skills" :key="skill.key">
-              <td><a :href="jobsLink(skill.key)">{{ skill.name }}</a></td>
+              <td><RouterLink :to="jobsLink(skill.key)">{{ skill.name }}</RouterLink></td>
               <td>{{ skill.jobs }}</td>
               <td>
                 <span class="bar" :style="{ '--share': percent(skill.share) }"></span>

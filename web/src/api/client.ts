@@ -6,5 +6,8 @@ import type { components, paths } from "./schema";
 export const api = createClient<paths>({ baseUrl: "/api" });
 
 type Schemas = components["schemas"];
+export type JobCard = Schemas["JobCard"];
+export type JobList = Schemas["JobList"];
+export type StatusSaved = Schemas["StatusSaved"];
 export type SkillsPage = Schemas["SkillsPage"];
 export type SkillRow = Schemas["SkillRow"];

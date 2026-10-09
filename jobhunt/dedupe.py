@@ -200,6 +200,5 @@ def merge_jobs(conn: sqlite3.Connection, keep: int, drop: int) -> None:
             )
         conn.execute("UPDATE jobs SET closed_at = NULL WHERE id = ? AND EXISTS "
                      "(SELECT 1 FROM sightings WHERE job_id = ? AND closed_at IS NULL)", (keep, keep))
-        conn.execute("DELETE FROM comparisons WHERE job_a = ? OR job_b = ?", (drop, drop))
         conn.execute("DELETE FROM packets WHERE job_id = ?", (drop,))
         conn.execute("DELETE FROM jobs WHERE id = ?", (drop,))  # dupe_pairs rows go with it

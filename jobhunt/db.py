@@ -195,6 +195,10 @@ MIGRATIONS: list[str] = [
     -- A source's totals from its latest run, nightly or one source by hand (JSON: requests, parsed, ...).
     ALTER TABLE sources ADD COLUMN last_tally TEXT;
     """,
+    """
+    -- The comparator is gone: lists sort by score alone.
+    DROP TABLE comparisons;
+    """,
 ]
 
 

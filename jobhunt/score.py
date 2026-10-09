@@ -1,4 +1,4 @@
-"""Formula scoring of kept jobs, and the comparator that orders the top of the list.
+"""Formula scoring of kept jobs. Every list is sorted by this score.
 
 The score is code over the job's facts and profile.toml, so a weight change in
 config.toml re-sorts every job in seconds without a model call.
@@ -6,7 +6,6 @@ config.toml re-sorts every job in seconds without a model call.
 
 from __future__ import annotations
 
-import random
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -14,17 +13,13 @@ from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel
-
 from jobhunt import db
 from jobhunt.config import Config, Profile
 
 if TYPE_CHECKING:
-    from jobhunt.llm import LLM
     from jobhunt.rules import Gazetteer
 
 JST = ZoneInfo("Asia/Tokyo")
-COMPARE_PROMPT_VERSION = "compare-1"
 
 # --- pay ------------------------------------------------------------------------
 
@@ -336,78 +331,3 @@ def rescore_all(conn: sqlite3.Connection, cfg: Config, gaz: Gazetteer) -> int:
         for job in jobs:
             apply_facts(conn, job, cfg, gaz)
     return len(jobs)
-
-
-# --- comparator --------------------------------------------------------------------------------
-
-
-class Comparison(BaseModel):
-    winner: str  # "A" or "B"
-    why: str
-
-
-def top_job_ids(conn: sqlite3.Connection, n: int) -> list[int]:
-    rows = conn.execute(
-        "SELECT id FROM jobs WHERE stage = 'kept' AND closed_at IS NULL AND status = 'none' "
-        "ORDER BY score DESC, id LIMIT ?",
-        (n,),
-    ).fetchall()
-    return [r["id"] for r in rows]
-
-
-def pending_pairs(conn: sqlite3.Connection, n: int) -> list[tuple[int, int]]:
-    """Pairs inside the current top n that the model has not judged yet."""
-    top = sorted(top_job_ids(conn, n))
-    if len(top) < 2:
-        return []
-    marks = ",".join("?" * len(top))
-    done = {
-        (r["job_a"], r["job_b"])
-        for r in conn.execute(f"SELECT job_a, job_b FROM comparisons WHERE job_a IN ({marks})", top)
-    }
-    return [(a, b) for i, a in enumerate(top) for b in top[i + 1 :] if (a, b) not in done]
-
-
-def ordered_top(conn: sqlite3.Connection, n: int) -> list[int]:
-    """The top n by most pairwise wins; ties go to the higher score."""
-    top = top_job_ids(conn, n)
-    if not top:
-        return []
-    marks = ",".join("?" * len(top))
-    wins = {job_id: 0 for job_id in top}
-    for row in conn.execute(
-        f"SELECT winner FROM comparisons WHERE job_a IN ({marks}) AND job_b IN ({marks})", top + top
-    ):
-        wins[row["winner"]] += 1
-    rank = {job_id: i for i, job_id in enumerate(top)}  # top is already in score order
-    return sorted(top, key=lambda j: (-wins[j], rank[j]))
-
-
-def compare(conn: sqlite3.Connection, llm: LLM, cfg: Config, a: int, b: int) -> None:
-    """Ask the model which of two jobs suits the candidate better; store the answer for good."""
-    from jobhunt.llm import posting_for_prompt
-
-    first, second = (a, b) if random.random() < 0.5 else (b, a)
-    profile = cfg.profile
-    skills = ", ".join(f"{name} (level {level})" for name, level in profile.skills.items()) or "not set"
-    prompt = (
-        "Two job postings follow. Decide which one is the better next job for this candidate.\n"
-        f"Candidate: {profile.years_experience:g} years of professional experience; skills: {skills}; "
-        f"pay floor ${profile.pay_floor_usd:,.0f} a year; lives in Japan; does not speak Japanese for work.\n"
-        "Weigh pay, remote work or a short commute, fit with the candidate's skills, a realistic level, "
-        "and working hours that suit Japan time.\n"
-        'Answer with JSON: {"winner": "A" or "B", "why": one sentence}.\n\n'
-        f"=== Job A ===\n{posting_for_prompt(conn, first, cap=3000)}\n\n"
-        f"=== Job B ===\n{posting_for_prompt(conn, second, cap=3000)}"
-    )
-    answer = llm.chat_json("compare", first, [{"role": "user", "content": prompt}], Comparison)
-    letter = answer.winner.strip().upper()[:1]
-    if letter not in ("A", "B"):
-        raise ValueError(f"comparator answered {answer.winner!r}")
-    winner = first if letter == "A" else second
-    low, high = sorted((a, b))
-    conn.execute(
-        "INSERT OR IGNORE INTO comparisons (job_a, job_b, winner, why, prompt_version, decided_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (low, high, winner, answer.why.strip(), COMPARE_PROMPT_VERSION, db.utc_now()),
-    )

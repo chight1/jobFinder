@@ -11,7 +11,7 @@ A Python program collects job postings every night, cuts the ones the candidate 
 3. Code rules: clear cases the candidate can't take go to the removed pile
 4. Extract with the local model: facts only, once per job
 5. Fact rules: the remaining cases the candidate can't take go to the removed pile
-6. Score by formula: top 20 ordered by pairwise comparison
+6. Score by formula: every list is sorted by it
 7. List page: every kept job, best first, new ones on top
 8. Apply: a packet drafted for each job marked apply
 
@@ -33,7 +33,7 @@ Python 3.12, one package named jobhunt, one SQLite file and one command-line ent
 | rules | Code removal rules and the queue score | GeoNames city and country lists |
 | dedupe | Merges sightings into jobs | datasketch (MinHash) |
 | llm | Talks to the local model and validates its output | httpx, pydantic |
-| score | Formula scoring and the comparator | standard library |
+| score | Formula scoring | standard library |
 | web | The list page: a JSON API and the Vue app it serves (pages still moving from Jinja2 templates) | FastAPI with Pydantic models, uvicorn; Vue 3, TypeScript, Vite, Vue Router, openapi-fetch, Vitest |
 | packets | Application packets | llm |
 
@@ -57,7 +57,6 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | sightings | id, source_id, external_id, url (canonical, unique), title, company_raw, location_raw, posted_at, description, desc_hash, source_fields (JSON), first_seen_at, last_seen_at, miss_streak, closed_at, job_id | One row per place a posting was seen |
 | jobs | id, company_norm, title_norm, city_norm, primary_sighting_id, stage, removal_rule, removal_quote, prescore, facts (JSON), prompt_version, score, score_parts (JSON), reason_line, badges, status, status_at, follow_up_on, first_seen_at, closed_at | One row per real position |
 | dupe_pairs | job_a, job_b, title_sim, desc_sim, verdict, decided_by | Borderline duplicates waiting for the model |
-| comparisons | job_a, job_b, winner, why, prompt_version, decided_at | Comparator results, never asked twice |
 | company_aliases | alias_norm, company_norm | Hand-kept company name aliases |
 | fetch_log | source_id, url, status, bytes, ms, at, error | Every request, for politeness and health |
 | runs | id, started_at, ended_at, counts (JSON) | One row per nightly run |
@@ -88,7 +87,6 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 1. Packets for jobs the candidate marked apply
 2. Borderline duplicate pairs
 3. Extraction of queued jobs, highest prescore first
-4. Comparator calls for jobs that entered the top 20
 
 **At 07:30:** removal rules on the night's new facts, formula scoring, closed-job marking, and the run summary. The list page shows the result when the candidate opens it.
 
@@ -302,30 +300,26 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 - **check:** a removal-relevant fact is unclear, or extraction failed.
 - **dispatch:** a payroll job placed at a client's site.
 
-**Comparator: keeping the top 20 sharp**
-
-1. When a job enters the top 20 by score, the model compares it with each of the other 19, one pair per call, with A and B in random order.
-2. Each answer (winner plus one line of why) is stored and never asked again.
-3. Order inside the top 20 = most pairwise wins; ties go to the higher score.
-4. A closed job leaves the top 20, and its stored answers stay.
+There is no model ranking on top of the score. A pairwise comparator (the model picking the better of two postings) was tried and dropped: a small local model's picks were closer to guesses than judgments, and it reordered the list on a handful of answers.
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765. The pages are moving one at a time from server-rendered Jinja2 templates to a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`) and served under /app/. The Vue pages read a JSON API under /api: FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. Either way the page reads the database directly, so it is always current. New and All open add jobs live: one small script asks the server every 10 seconds for jobs listed since its last check and slots them in by score, highlighted briefly.
+"jobhunt serve" runs a local web page at localhost:8765. The pages are moving one at a time from server-rendered Jinja2 templates to a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`) and served under /app/. The Vue pages read a JSON API under /api: FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. Either way the page reads the database directly, so it is always current. New and All open add jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Views marked (Vue) have moved; the rest are still server-rendered.
 
 | View | Shows |
 | --- | --- |
-| New | jobs first seen since the last visit, by score |
-| All open | every kept, open job: the top 20 in comparator order, then the rest by score |
-| Japanese | open jobs that pass every rule but require Japanese, by score |
-| Removed | removed jobs, filterable by rule, each with its quote and a restore button |
-| Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
-| Not interested | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
+| New (Vue) | jobs first seen since the last visit, by score |
+| All open (Vue) | every kept, open job, by score |
+| Japanese (Vue) | open jobs that pass every rule but require Japanese, by score |
+| Removed (Vue) | removed jobs, filterable by rule (kept in the URL), each with its quote and a restore button |
+| Applied (Vue) | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
+| Not interested (Vue) | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
+| Skill's jobs (Vue) | the open jobs asking for one skill, from a skill chip or the Skills table |
 | Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
 | Skills (Vue) | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; the filters are in the URL; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
-| Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate and comparison results, and the description |
+| Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 
 The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
@@ -381,7 +375,7 @@ Each step ends with something that runs.
 2. **Thin slice, end to end:** Himalayas (JSON API), TokyoDev and Japan Dev (HTML), and the Greenhouse collector on 20 boards taken from the Japan Dev company list. They run through code rules, dedupe levels 1 and 2, extraction, removal, scoring and the list page. From here on the list is real.
 3. **Every feed, JSON API and hiring-system collector,** plus company discovery and board tiers.
 4. **Plain-page collectors,** reusing the jpjobs package (Python, version 0.2.0) where it already covers a board.
-5. **Dedupe level 3, the comparator and packets.**
+5. **Dedupe level 3 and packets.**
 6. **The browser sites,** last: the most work for the least new volume.
 
 **Testing**

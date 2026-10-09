@@ -24,6 +24,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jobs
+         * @description One tab's jobs. rule narrows Removed to one removal rule. after (an earlier reply's `now`) narrows
+         *     New and All open to the jobs listed since, for an open page to add as the model finishes them.
+         */
+        get: operations["jobs_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seen
+         * @description Mark everything seen: New then holds only jobs first seen after now.
+         */
+        post: operations["seen_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Status
+         * @description Set a job's status. "none" clears it, and the job goes back to the lists as if never marked.
+         *     Marking a job applied sets a follow-up date.
+         */
+        post: operations["set_status_jobs__job_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}/rating": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Rating
+         * @description Mark how much the candidate likes a job. Picking the current color again clears it.
+         */
+        post: operations["set_rating_jobs__job_id__rating_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore
+         * @description Put a removed job back; the same rule never removes it again. A job the model read is judged
+         *     again from its facts; a code-removed one goes to the model queue.
+         */
+        post: operations["restore_jobs__job_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills": {
         parameters: {
             query?: never;
@@ -37,6 +140,26 @@ export interface paths {
          *     "all" every job the model has read; jobs that require Japanese count only with japanese=true.
          */
         get: operations["skills_skills_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/{key}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Skill Jobs
+         * @description The open kept jobs that ask for one skill (any spelling), best first; the Japanese ones too when asked.
+         */
+        get: operations["skill_jobs_skills__key__jobs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -74,11 +197,153 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * JobCard
+         * @description One job as a tile shows it.
+         */
+        JobCard: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /**
+             * Url
+             * @description The primary sighting's link
+             */
+            url: string;
+            /** Company */
+            company: string;
+            /** Work Mode */
+            work_mode: string | null;
+            /**
+             * Place
+             * @description The office city, else the posting's location; empty when neither is given
+             */
+            place: string;
+            /**
+             * Pay
+             * @description In the posting's currency and in dollars, e.g. '9,000,000 JPY/year ($60k)'
+             */
+            pay: string;
+            /** Primary Language */
+            primary_language: string | null;
+            /** Score */
+            score: number | null;
+            /** Reason Line */
+            reason_line: string | null;
+            /** Badges */
+            badges: string[];
+            /** Rating */
+            rating: ("green" | "yellow" | "red") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "apply" | "applied" | "interviewing" | "rejected" | "ghosted" | "not_interested";
+            /** Status At */
+            status_at: string | null;
+            /**
+             * Follow Up On
+             * @description ISO date to follow up an application
+             */
+            follow_up_on: string | null;
+            /** Removal Rule */
+            removal_rule: string | null;
+            /** Removal Quote */
+            removal_quote: string | null;
+            /**
+             * Source
+             * @description Where the primary sighting was seen
+             */
+            source: string;
+            /**
+             * Others
+             * @description Other places the same job was seen
+             */
+            others: components["schemas"]["Link"][];
+            /**
+             * Probably Same
+             * @description Jobs judged probably the same position
+             */
+            probably_same: number[];
+            /** Has Packet */
+            has_packet: boolean;
+            /** Skills */
+            skills: components["schemas"]["SkillChip"][];
+        };
+        /** JobList */
+        JobList: {
+            /** Jobs */
+            jobs: components["schemas"]["JobCard"][];
+            /**
+             * Now
+             * @description Pass back as `after` to get only the jobs listed since
+             */
+            now: string;
+            /**
+             * Rules
+             * @description Removed: every removal rule, for the filter
+             */
+            rules: string[];
+        };
+        /** Link */
+        Link: {
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+        };
         /** ProfileSkill */
         ProfileSkill: {
             /** Name */
             name: string;
             /** Level */
+            level: number;
+        };
+        /** RatingChange */
+        RatingChange: {
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "green" | "yellow" | "red";
+        };
+        /** RatingSaved */
+        RatingSaved: {
+            /**
+             * Rating
+             * @description null when the same color was picked again, which clears it
+             */
+            rating: ("green" | "yellow" | "red") | null;
+        };
+        /** Restored */
+        Restored: {
+            /**
+             * Stage
+             * @description queued for a code-removed job, else the stage its facts now give
+             */
+            stage: string;
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+        };
+        /** SkillChip */
+        SkillChip: {
+            /**
+             * Name
+             * @description As the posting spells it
+             */
+            name: string;
+            /**
+             * Key
+             * @description The merged name, for the skill's job list
+             */
+            key: string;
+            /**
+             * Level
+             * @description Your level in it; 0 when it is not in your profile
+             */
             level: number;
         };
         /** SkillLevel */
@@ -164,6 +429,33 @@ export interface components {
              */
             levels: number[];
         };
+        /** StatusChange */
+        StatusChange: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "apply" | "applied" | "interviewing" | "rejected" | "ghosted" | "not_interested";
+        };
+        /** StatusSaved */
+        StatusSaved: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "apply" | "applied" | "interviewing" | "rejected" | "ghosted" | "not_interested";
+            /** Status At */
+            status_at: string | null;
+            /** Follow Up On */
+            follow_up_on: string | null;
+            /**
+             * Counts
+             * @description The top bar's counts after the change
+             */
+            counts: {
+                [key: string]: number;
+            };
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -208,6 +500,158 @@ export interface operations {
             };
         };
     };
+    jobs_jobs_get: {
+        parameters: {
+            query: {
+                view: "new" | "all" | "japanese" | "removed" | "applied" | "not_interested";
+                rule?: string | null;
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    seen_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_status_jobs__job_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_rating_jobs__job_id__rating_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RatingChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_jobs__job_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Restored"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     skills_skills_get: {
         parameters: {
             query?: {
@@ -227,6 +671,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillsPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skill_jobs_skills__key__jobs_get: {
+        parameters: {
+            query?: {
+                japanese?: boolean;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobList"];
                 };
             };
             /** @description Validation Error */
