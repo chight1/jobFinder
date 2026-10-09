@@ -2,10 +2,11 @@
 
 Source config:
     feeds           feed URLs
-    title_format    "company: title" when entry titles carry the company before a colon
+    title_format    "company: title" when entry titles carry the company before a colon,
+                    "title at company" when they carry it after a last " at "
     company_field   entry key holding the company (default "author")
     location_field  entry key holding the location (default "location", then "region")
-    location_in_text  true when the entry text opens with "Place · pay" (startup.jobs)
+    location_in_text  true when the entry text ends with a "Place · pay" line (startup.jobs)
 """
 
 from __future__ import annotations
@@ -58,6 +59,9 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     company = entry.get(config.get("company_field", "author"), "")
     if config.get("title_format") == "company: title" and ":" in title:
         company, title = (part.strip() for part in title.split(":", 1))
+    elif config.get("title_format") == "title at company" and " at " in title:
+        title, named = (part.strip() for part in title.rsplit(" at ", 1))
+        company = company or named
 
     text = ""
     if entry.get("content"):
@@ -69,7 +73,8 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     else:
         location = entry.get("location", "") or entry.get("region", "")
     if config.get("location_in_text") and not location:
-        location = to_text(text).split("\n", 1)[0].split("·", 1)[0].strip()
+        lines = [line for line in to_text(text).splitlines() if line.strip()]
+        location = lines[-1].split("·", 1)[0].strip() if len(lines) > 1 else ""  # one line is only the teaser
 
     published = entry.get("published_parsed") or entry.get("updated_parsed")
     return Summary(

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="view-head">
+  <h1>Data <span class="count">{{ table }}: {{ total }}</span></h1>
+  <form method="get" action="/data" class="search">
+    <input type="hidden" name="table" value="{{ table }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="search every column" aria-label="Search">
+    <button>Search</button>
+  </form>
+</header>
+
+<nav class="tables" aria-label="Tables">
+  {% for name, n in table_counts.items() %}
+  <a href="/data?table={{ name }}"{% if name == table %} aria-current="page"{% endif %}>{{ name }}
+    <span class="tab-count">{{ n }}</span></a>
+  {% endfor %}
+</nav>
+
+{% if not rows %}
+<p class="empty">{% if q %}No rows match “{{ q }}”.{% else %}This table is empty.{% endif %}</p>
+{% else %}
+<div class="table-wrap">
+  <table class="data">
+    <thead><tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+      {% for value in row %}
+        {% set column = columns[loop.index0] %}
+        <td>
+          {%- if value and ((table == "jobs" and column == "id") or column in ("job_id", "job_a", "job_b", "winner")) -%}
+            <a href="/jobs/{{ value }}">{{ value }}</a>
+          {%- else -%}{{ value }}{%- endif -%}
+        </td>
+      {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if pages > 1 %}
+<p class="pager">
+  {% if page > 1 %}<a href="/data?table={{ table }}&q={{ q|urlencode }}&page={{ page - 1 }}">← newer</a>{% endif %}
+  page {{ page }} of {{ pages }}
+  {% if page < pages %}<a href="/data?table={{ table }}&q={{ q|urlencode }}&page={{ page + 1 }}">older →</a>{% endif %}
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="view-head">
+  <h1>
+    {% if primary %}<a href="{{ primary.url }}" target="_blank" rel="noreferrer">{{ primary.title }}</a>{% else %}Job{% endif %}
+    <span class="count">#{{ job.id }}</span>
+  </h1>
+</header>
+<p class="meta">
+  {{ primary.company_raw if primary else "" }}{% if primary and primary.location_raw %} · {{ primary.location_raw }}{% endif %}
+  {% for badge in badges %}<span class="badge {{ badge }}">{{ badge }}</span>{% endfor %}
+</p>
+
+<section>
+  <h2>State</h2>
+  <dl class="kv">
+    <dt>Stage</dt><dd>{{ job.stage }}{% if job.closed_at %} · closed {{ job.closed_at[:10] }}{% endif %}</dd>
+    {% if job.removal_rule %}<dt>Removed by</dt><dd><strong>{{ job.removal_rule }}</strong>{% if job.removal_quote %}: “{{ job.removal_quote }}”{% endif %}</dd>{% endif %}
+    {% if restored_rules %}<dt>Restored from</dt><dd>{{ restored_rules|join(", ") }}</dd>{% endif %}
+    <dt>Rating</dt><dd>{% if job.rating %}<span class="dot {{ job.rating }}" aria-pressed="true" style="display:inline-block;vertical-align:middle"></span> {{ job.rating }}{% else %}<span class="muted">not rated</span>{% endif %}</dd>
+    <dt>Status</dt><dd>{{ job.status }}{% if job.status_at %} since {{ job.status_at[:10] }}{% endif %}{% if job.follow_up_on %} · follow up {{ job.follow_up_on }}{% endif %}</dd>
+    <dt>First seen</dt><dd>{{ job.first_seen_at[:16]|replace("T", " ") }}{% if job.listed_at %} · listed {{ job.listed_at[:16]|replace("T", " ") }}{% endif %}</dd>
+    <dt>Queue order</dt><dd>prescore {{ job.prescore }}</dd>
+    <dt>Dedupe key</dt><dd>{{ job.company_norm }} · {{ job.title_norm }} · {{ job.city_norm }}</dd>
+  </dl>
+</section>
+
+{% if job.score is not none %}
+<section>
+  <h2>Score {{ "%.1f"|format(job.score) }}</h2>
+  <dl class="kv">
+    {% for part, value in score_parts.items() %}<dt>{{ part }}</dt><dd>{{ "%.2f"|format(value) }}</dd>{% endfor %}
+  </dl>
+  {% if job.reason_line %}<p class="reason">{{ job.reason_line }}</p>{% endif %}
+</section>
+{% endif %}
+
+<section>
+  <h2>Facts from the model</h2>
+  {% if facts %}
+  <dl class="kv">
+    {% for name, value in facts.items() if name != "evidence" %}
+    <dt>{{ name }}</dt><dd>{% if value is none %}<span class="muted">null</span>{% elif value is mapping %}{{ value|tojson }}{% elif value is iterable and value is not string %}{{ value|join(", ") }}{% else %}{{ value }}{% endif %}</dd>
+    {% endfor %}
+  </dl>
+  {% if facts.evidence %}
+  <h3>Evidence</h3>
+  <dl class="kv">
+    {% for name, quote in facts.evidence.items() %}<dt>{{ name }}</dt><dd>“{{ quote }}”</dd>{% endfor %}
+  </dl>
+  {% endif %}
+  {% else %}
+  <p class="empty">Not extracted{% if job.stage == "extract_failed" %}: the model gave no valid answer{% endif %}.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Seen at <span class="count">{{ sightings|length }}</span></h2>
+  <div class="table-wrap">
+  <table class="data">
+    <thead><tr><th>Source</th><th>Title</th><th>Company</th><th>Location</th><th>First seen</th><th>Last seen</th><th>Closed</th></tr></thead>
+    <tbody>
+    {% for s in sightings %}
+      <tr>
+        <td><a href="{{ s.url }}" target="_blank" rel="noreferrer">{{ s.source_name }}</a>{% if primary and s.id == primary.id %} (primary){% endif %}</td>
+        <td>{{ s.title }}</td><td>{{ s.company_raw }}</td><td>{{ s.location_raw }}</td>
+        <td>{{ s.first_seen_at[:10] }}</td><td>{{ s.last_seen_at[:10] }}</td><td>{{ (s.closed_at or "")[:10] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if primary and primary.fields %}<p class="meta">Source fields: {{ primary.fields|tojson }}</p>{% endif %}
+</section>
+
+<section>
+  <h2>Model calls <span class="count">{{ model_calls|length }}</span></h2>
+  {% if model_calls %}
+  <ul class="plain">
+    {% for call in model_calls %}
+    <li>{{ call.at[:19]|replace("T", " ") }} · {{ call.kind }} · {{ "%.1f"|format(call.seconds) }} s · {% if call.ok %}ok{% else %}<span class="flag">{{ call.error or "failed" }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">None yet.</p>{% endif %}
+  {% for p in pairs %}
+  <p class="meta">Possible duplicate: <a href="/jobs/{{ p.job_a }}">#{{ p.job_a }}</a> / <a href="/jobs/{{ p.job_b }}">#{{ p.job_b }}</a> · {{ p.verdict or "waiting for the model" }}{% if p.decided_by %} ({{ p.decided_by }}){% endif %}</p>
+  {% endfor %}
+  {% for c in comparisons %}
+  <p class="meta">Compared <a href="/jobs/{{ c.job_a }}">#{{ c.job_a }}</a> with <a href="/jobs/{{ c.job_b }}">#{{ c.job_b }}</a>: winner #{{ c.winner }}, “{{ c.why }}”</p>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Description</h2>
+  {% if description %}<pre class="packet">{{ description }}</pre>{% else %}<p class="empty">No description stored.</p>{% endif %}
+</section>
+{% endblock %}

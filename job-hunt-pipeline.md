@@ -72,7 +72,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 
 ## The nightly run
 
-The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobhunt nightly" at 01:00. Two workers share the database and run side by side: the fetch worker uses the network, the model worker uses the processor.
+The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobhunt nightly" at 01:00. Two workers share the database and run side by side: the fetch worker uses the network, the model worker uses the processor. Only one model worker runs at a time (an OS lock on data/model.lock): one started by hand that is still working the queue keeps it, and the nightly run's model worker steps aside.
 
 **Fetch worker, 01:00 to 05:00.** At 05:00 it stops; each source saves its cursor and resumes there the next night.
 
@@ -94,7 +94,7 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 
 **The first night is bigger.** Everything open is new, so the first pull and the first extraction backlog spread over several nights, each continuing where the last stopped.
 
-**By hand, any time:** "jobhunt process --minutes 60" runs the model worker; "jobhunt collect --source NAME" runs one source; "jobhunt packet JOB_ID" drafts one packet now; "jobhunt rescore" re-applies the formula in seconds, with no model calls.
+**By hand, any time:** "jobhunt process" runs the model worker until no work is left ("--minutes 60" sets a limit); "jobhunt collect --source NAME" runs one source; "jobhunt packet JOB_ID" drafts one packet now; "jobhunt rescore" re-applies the formula in seconds, with no model calls.
 
 ## Fetching and politeness
 
@@ -199,9 +199,11 @@ The model only reads postings and fills in facts. It never scores: scoring is a 
 **Input trimming.**
 
 1. Convert the description from HTML to plain text.
-2. Split it into sections at its headings.
-3. Keep sections whose heading mentions requirements, qualifications, responsibilities, the role, location, remote work, compensation, salary, benefits or hours. Drop company history, culture and equal-opportunity statements.
+2. Split it into sections at its headings. A bullet point is never a heading.
+3. Drop only filler sections: about the company, culture and values, equal-opportunity, diversity and privacy statements. Keep everything else, since headings vary too much to list the useful ones. If trimming would keep less than 40% of the posting, send the whole posting: a heading was misread.
 4. Cap the result at 6,000 characters. Title, company, location text and the source's structured fields go in front, untouched.
+
+**Number check.** After extraction, code looks for each pay, years-required and office-days figure in the text the model read ("120k", "120,000", "800万" and "three" all count). A figure that appears nowhere is a guess and is cleared to null. A guessed salary would otherwise put a job at the top of the list.
 
 **Output.** One JSON object, validated against this schema with pydantic. The schema itself is sent along when the server supports constrained output.
 
@@ -314,10 +316,19 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 | New | jobs first seen since the last visit, by score |
 | All open | every kept, open job: the top 20 in comparator order, then the rest by score |
 | Removed | removed jobs, filterable by rule, each with its quote and a restore button |
-| Applied | jobs with a status, newest first, with follow-up dates |
-| Health | per-source status (see Health and errors) |
+| Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
+| Not interested | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
+| Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
+| Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
+| Skills | every skill the open jobs name, most common first, with your level beside each; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
+| Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate and comparison results, and the description |
+
+The tabs for New, All open, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
 **Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and status buttons: apply, applied, interviewing, rejected, ghosted, not interested.
+
+**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. A small script saves the rating without reloading the page.
 
 **Buttons** send a plain form post that sets the job's status and time. "Apply" also queues a packet. Any status takes the job out of New and All open.
 

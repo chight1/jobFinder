@@ -13,7 +13,7 @@ import hashlib
 import logging
 import sqlite3
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from typing import Any, Iterable, Literal
@@ -31,7 +31,7 @@ from jobhunt.dedupe import (
     title_norm,
 )
 from jobhunt.fetch import DailyCapReached, Fetcher, FetchError, SourceBlocked
-from jobhunt.text import to_text
+from jobhunt.text import short_location, to_text
 
 log = logging.getLogger(__name__)
 
@@ -91,17 +91,22 @@ class Runner:
     def __init__(self, shared: Shared, conn: sqlite3.Connection) -> None:
         self.s = shared
         self.conn = conn
+        # The totals of a listing a block or the daily cap cut off: what it saved before then still counts.
+        self.unfinished: Tally | None = None
 
     # --- entry points --------------------------------------------------------------
 
     def run_source(self, source: sqlite3.Row) -> Tally:
         collector = collectors.get(source["collector"])
         ctx = self._context(source["id"], db.loads(source["config"], {}), None)
-        listing = collector.list_postings(ctx, db.loads(source["cursor"]))
+        detail = detail_loader(collector, ctx.config)
         try:
-            tally = self._ingest(ctx, collector, source, None, listing)
+            listing = collector.list_postings(ctx, db.loads(source["cursor"]))
+            tally = self._ingest(ctx, detail, source, None, listing)
         finally:
             self._finish(collector)
+            if detail is not collector:
+                self._finish(detail)
         # A run cut short keeps the old cursor: a feed's new ETag would hide the entries not yet read.
         if not self.s.dry_run and tally.status == "ok":
             self.conn.execute(
@@ -119,7 +124,12 @@ class Runner:
         except BoardGone:
             self._mark_board(board, job_count=None)
             return Tally(status="board gone")
-        tally = self._ingest(ctx, collector, source, board["id"], listing)
+        detail = detail_loader(collector, config)
+        try:
+            tally = self._ingest(ctx, detail, source, board["id"], listing)
+        finally:
+            if detail is not collector:
+                self._finish(detail)
         cursor = listing.cursor if tally.status == "ok" else db.loads(board["cursor"])
         self._mark_board(board, job_count=len(listing.seen_ids), cursor=cursor)
         return tally
@@ -151,9 +161,10 @@ class Runner:
         return found
 
     def _ingest(
-        self, ctx: Context, collector: ModuleType, source: sqlite3.Row, board_id: int | None, listing: Listing
+        self, ctx: Context, detail: ModuleType, source: sqlite3.Row, board_id: int | None, listing: Listing
     ) -> Tally:
-        tally = Tally(parsed=len(listing.summaries))
+        """detail is the module whose fetch_detail opens job pages (see detail_loader)."""
+        tally = self.unfinished = Tally(parsed=len(listing.summaries))
         if self.s.dry_run:
             for summary in listing.summaries:
                 print(f"{summary.external_id}\t{summary.title}\t{summary.company}\t{summary.location}\t{summary.url}")
@@ -163,7 +174,7 @@ class Runner:
                 tally.status = "partial"  # unprocessed postings are still new next run
                 break
             try:
-                outcome = self._one(ctx, collector, source, board_id, summary)
+                outcome = self._one(ctx, detail, source, board_id, summary)
             except (SourceBlocked, DailyCapReached):
                 raise
             except PostingGone:
@@ -182,11 +193,13 @@ class Runner:
                 tally.code_removed += 1
         if listing.whole_list:
             tally.closed += self._count_misses(source["id"], board_id, listing.seen_ids)
+        self.unfinished = None
         return tally
 
     def _one(
-        self, ctx: Context, collector: ModuleType, source: sqlite3.Row, board_id: int | None, summary: Summary
+        self, ctx: Context, detail: ModuleType, source: sqlite3.Row, board_id: int | None, summary: Summary
     ) -> Outcome:
+        summary = replace(summary, location=self._place(ctx, summary))
         url = canonical_url(summary.url)
         existing = self.conn.execute(
             "SELECT id, job_id, closed_at FROM sightings "
@@ -211,7 +224,8 @@ class Runner:
                 return "removed"
 
         if not summary.description:
-            summary = replace(collector.fetch_detail(ctx, summary), from_link=False)
+            summary = detail.fetch_detail(ctx, summary)
+            summary = replace(summary, location=self._place(ctx, summary), from_link=False)
             new_key = self._key(summary)
             if new_key != key:
                 key = new_key
@@ -260,6 +274,15 @@ class Runner:
             fields=summary.fields,
             gaz=self.s.gaz,
         )
+
+    @staticmethod
+    def _place(ctx: Context, summary: Summary) -> str:
+        """The posting's location, shortened when it lists most of the world. A source whose jobs all share
+        one (a worldwide-only board) names it as default_location, used when a posting gives none, or as
+        fixed_location when the pages give a wrong one (the same boilerplate countries on every job)."""
+        if ctx.config.get("fixed_location"):
+            return ctx.config["fixed_location"]
+        return short_location(summary.location or ctx.config.get("default_location", ""))
 
     def _key(self, summary: Summary) -> _Key:
         return _Key(
@@ -446,27 +469,35 @@ def fetch_kind(collector: str) -> str:
 
 
 def record_outcome(conn: sqlite3.Connection, cfg: Config, source: sqlite3.Row, tally: Tally,
-                   blocked: str | None) -> None:
-    """Back off a blocked source, or ease a clean one back toward its default gap."""
+                   blocked: str | None, *, requests: int) -> None:
+    """Keep the run's totals for the Health page, and back off a blocked source or ease a clean one
+    back toward its default gap."""
     fetch_cfg = cfg.fetch
     base = source["base_delay_s"] or float(fetch_cfg[f"{fetch_kind(source['collector'])}_gap_s"])
     current = source["min_delay_s"] or base
     now = datetime.now(UTC)
+    totals = db.dumps(asdict(tally) | {"requests": requests})
     if blocked:
         conn.execute(
             "UPDATE sources SET backoff_until = ?, min_delay_s = ?, fail_streak = fail_streak + 1, "
-            "last_run_at = ?, last_status = ? WHERE id = ?",
+            "last_run_at = ?, last_status = ?, last_tally = ? WHERE id = ?",
             ((now + timedelta(hours=20)).isoformat(timespec="seconds"),
              min(float(fetch_cfg["max_gap_s"]), current * 2), now.isoformat(timespec="seconds"),
-             f"blocked: {blocked}", source["id"]),
+             f"blocked: {blocked}", totals, source["id"]),
         )
         return
     eased = max(base, current / 2)
     conn.execute(
         "UPDATE sources SET backoff_until = NULL, min_delay_s = ?, fail_streak = 0, last_run_at = ?, "
-        "last_status = ? WHERE id = ?",
-        (None if eased <= base else eased, now.isoformat(timespec="seconds"), tally.status, source["id"]),
+        "last_status = ?, last_tally = ? WHERE id = ?",
+        (None if eased <= base else eased, now.isoformat(timespec="seconds"), tally.status, totals, source["id"]),
     )
+
+
+def detail_loader(collector: ModuleType, config: dict[str, Any]) -> ModuleType:
+    """The module that opens job pages: the source's own collector, or the browser one when the source
+    sets detail_browser because its job pages stop plain requests (the list or feed still loads plainly)."""
+    return collectors.get("browser") if config.get("detail_browser") else collector
 
 
 # --- restoring a job the code rules cut ----------------------------------------------------------
@@ -495,11 +526,11 @@ def fill_detail(conn: sqlite3.Connection, fetcher: Fetcher, sighting_id: int) ->
     )
     summary = Summary(row["external_id"], row["url"], row["title"], row["company_raw"], row["location_raw"],
                       row["posted_at"], None, db.loads(row["source_fields"], {}))
-    collector = collectors.get(row["collector"])
+    detail = detail_loader(collectors.get(row["collector"]), config)
     try:
-        filled = collector.fetch_detail(ctx, summary)
+        filled = detail.fetch_detail(ctx, summary)
     finally:
-        Runner._finish(collector)
+        Runner._finish(detail)
     description = filled.description or ""
     conn.execute(
         "UPDATE sightings SET description = ?, desc_hash = ?, source_fields = ? WHERE id = ?",

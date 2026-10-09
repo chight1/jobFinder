@@ -11,27 +11,31 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from jobhunt import db, rules, score
+from jobhunt import db, profile_file, rules, score
 from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
-from jobhunt.config import Config
+from jobhunt.config import Config, reload_skills
 from jobhunt.fetch import Fetcher, FetchError
 from jobhunt.rules import Gazetteer
+from jobhunt.web import inspect
 
 log = logging.getLogger(__name__)
 
 STATUSES = ("apply", "applied", "interviewing", "rejected", "ghosted", "not_interested")
+RATINGS = ("green", "yellow", "red")
 # How each status reads on the page, and the button that sets it. "apply" only drafts a packet,
 # so its button says so, while the job itself reads as one still to apply to.
 STATUS_NAMES = {"apply": "to apply", "not_interested": "not interested"}
 BUTTON_LABELS = {"apply": "draft packet", "not_interested": "not interested"}
 _HERE = Path(__file__).parent
 _LISTED = "j.stage IN ('kept', 'extract_failed') AND j.closed_at IS NULL AND j.status = 'none'"
+APPLIED_STATUSES = tuple(s for s in STATUSES if s != "not_interested")  # the Applied tab; not interested has its own
+_APPLIED = f"j.status IN ({', '.join(repr(s) for s in APPLIED_STATUSES)})"
 _JOB_COLUMNS = """
     SELECT j.*, s.title, s.company_raw, s.location_raw, s.url, src.name AS source_name,
            EXISTS (SELECT 1 FROM packets p WHERE p.job_id = j.id) AS has_packet
@@ -41,7 +45,8 @@ _JOB_COLUMNS = """
 """
 
 
-def create_app(cfg: Config) -> FastAPI:
+def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
+    """gazetteer_ is for tests; the app otherwise loads GeoNames on first need."""
     app = FastAPI(title="jobhunt", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=_HERE / "templates")
 
@@ -50,9 +55,18 @@ def create_app(cfg: Config) -> FastAPI:
                                facts.get("pay_period"), cfg.currency)
         return score.pay_text(facts, usd)
 
-    templates.env.globals.update(statuses=STATUSES, status_names=STATUS_NAMES, button_labels=BUTTON_LABELS, pay=pay)
+    def asset(name: str) -> str:
+        """A static file's URL with its modification time, so browsers fetch it again after any change."""
+        return f"/static/{name}?v={int((_HERE / 'static' / name).stat().st_mtime)}"
+
+    templates.env.globals.update(
+        asset=asset,
+        statuses=STATUSES, status_names=STATUS_NAMES, button_labels=BUTTON_LABELS, ratings=RATINGS, pay=pay,
+        canonical_skill=score.canonical_skill,
+        skill_level=lambda name: score.skill_level(name, cfg.profile),
+    )
     app.mount("/static", StaticFiles(directory=_HERE / "static"), name="static")
-    gaz: list[Gazetteer] = []  # loaded on first restore, which needs the rules
+    gaz: list[Gazetteer] = [gazetteer_] if gazetteer_ else []  # else loaded on first restore or rescore
 
     @contextmanager
     def connection() -> Iterator[sqlite3.Connection]:
@@ -128,8 +142,16 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/applied", response_class=HTMLResponse)
     def applied(request: Request) -> HTMLResponse:
         with connection() as conn:
-            jobs = _jobs(conn, "j.status != 'none'", (), "j.status_at DESC")
-        return render(request, "applied.html", title="Applied", jobs=jobs, today=date.today().isoformat())
+            jobs = _jobs(conn, _APPLIED, (), "j.status_at DESC")
+        return render(request, "applied.html", title="Applied", jobs=jobs, holds=APPLIED_STATUSES,
+                      empty="Nothing applied for yet.", today=date.today().isoformat())
+
+    @app.get("/not-interested", response_class=HTMLResponse)
+    def not_interested(request: Request) -> HTMLResponse:
+        with connection() as conn:
+            jobs = _jobs(conn, "j.status = 'not_interested'", (), "j.status_at DESC")
+        return render(request, "applied.html", title="Not interested", jobs=jobs, holds=("not_interested",),
+                      empty="Nothing marked not interested.", today=date.today().isoformat())
 
     @app.get("/health", response_class=HTMLResponse)
     def health(request: Request) -> HTMLResponse:
@@ -137,24 +159,48 @@ def create_app(cfg: Config) -> FastAPI:
             context = _health(conn, cfg)
         return render(request, "health.html", title="Health", **context)
 
-    @app.post("/jobs/{job_id}/status")
-    def set_status(request: Request, job_id: int, status: str = Form(...)) -> RedirectResponse:
-        if status not in STATUSES:
+    @app.post("/jobs/{job_id}/status", response_model=None)
+    def set_status(request: Request, job_id: int, status: str = Form(...)) -> RedirectResponse | JSONResponse:
+        if status not in STATUSES and status != "none":
             raise HTTPException(400, f"unknown status {status!r}")
         follow_up = None
         if status == "applied":
             follow_up = (date.today() + timedelta(days=int(cfg.list["follow_up_days"]))).isoformat()
         with connection() as conn:
-            conn.execute(
-                "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = COALESCE(?, follow_up_on) WHERE id = ?",
-                (status, db.utc_now(), follow_up, job_id),
-            )
+            if status == "none":  # cleared: the job goes back to the lists as if never marked
+                conn.execute("UPDATE jobs SET status = 'none', status_at = NULL, follow_up_on = NULL WHERE id = ?",
+                             (job_id,))
+            else:
+                conn.execute(
+                    "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = COALESCE(?, follow_up_on) WHERE id = ?",
+                    (status, db.utc_now(), follow_up, job_id),
+                )
+            counts = _tab_counts(conn)
+        # As with ratings: the tile's script asks for JSON so you keep your place in the list.
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"status": status, "name": STATUS_NAMES.get(status, status), "counts": counts})
         return RedirectResponse(request.headers.get("referer") or "/new", status_code=303)
 
     def gazetteer() -> Gazetteer:
         if not gaz:
             gaz.append(Gazetteer.from_geonames(cfg.geonames_dir))
         return gaz[0]
+
+    @app.post("/jobs/{job_id}/rating", response_model=None)
+    def set_rating(request: Request, job_id: int, rating: str = Form(...)) -> RedirectResponse | JSONResponse:
+        """Mark how much the candidate likes a job. Choosing the current color again clears it."""
+        if rating not in RATINGS:
+            raise HTTPException(400, f"unknown rating {rating!r}")
+        with connection() as conn:
+            row = conn.execute("SELECT rating FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, f"no job #{job_id}")
+            new = None if row["rating"] == rating else rating
+            conn.execute("UPDATE jobs SET rating = ? WHERE id = ?", (new, job_id))
+        # The tile's script asks for JSON so the page needn't reload; a plain form post goes back where it was.
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"rating": new})
+        return RedirectResponse(request.headers.get("referer") or "/all", status_code=303)
 
     @app.post("/jobs/{job_id}/restore")
     def restore(request: Request, job_id: int) -> RedirectResponse:
@@ -201,6 +247,78 @@ def create_app(cfg: Config) -> FastAPI:
             )
         return RedirectResponse("/health", status_code=303)
 
+    @app.get("/skills", response_class=HTMLResponse)
+    def skills(request: Request, scope: str = "kept") -> HTMLResponse:
+        if scope not in inspect.SKILL_SCOPES:
+            raise HTTPException(404, f"no scope {scope!r}")
+        reload_skills(cfg)  # pick up hand edits to profile.toml too
+        with connection() as conn:
+            stats = inspect.skill_stats(conn, cfg.profile, scope)
+        seen = {s["key"] for s in stats["skills"]}
+        unseen = sorted(
+            ((name, level) for name, level in cfg.profile.skills.items() if score.canonical_skill(name) not in seen),
+            key=lambda item: (-item[1], item[0]),
+        )
+        return render(request, "skills.html", title="Skills", scope=scope, unseen=unseen,
+                      levels=profile_file.LEVELS, **stats)
+
+    @app.post("/skills/level", response_model=None)
+    def set_skill_level(
+        request: Request, name: str = Form(...), level: int = Form(...)
+    ) -> RedirectResponse | JSONResponse:
+        """Change a skill's level in profile.toml (0 removes it), then rescore every job with facts."""
+        try:
+            stored = profile_file.set_skill_level(cfg.profile_path, name, level)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        reload_skills(cfg)
+        with connection() as conn:
+            rescored = score.rescore_all(conn, cfg, gazetteer())
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"name": stored, "level": level, "rescored": rescored})
+        return RedirectResponse(request.headers.get("referer") or "/skills", status_code=303)
+
+    @app.get("/skills/{key}", response_class=HTMLResponse)
+    def skill_jobs(request: Request, key: str) -> HTMLResponse:
+        """The open kept jobs that ask for one skill."""
+        key = score.canonical_skill(key)
+        with connection() as conn:
+            ids = inspect.job_ids_with_skill(conn, key)
+            jobs = _jobs(conn, f"j.id IN ({','.join('?' * len(ids))})", tuple(ids), "j.score DESC") if ids else []
+        return render(request, "list.html", title=f"Jobs asking for {key}", jobs=jobs)
+
+    @app.get("/data", response_class=HTMLResponse)
+    def data(request: Request, table: str = "jobs", q: str = "", page: int = 1) -> HTMLResponse:
+        with connection() as conn:
+            try:
+                contents = inspect.table_page(conn, table, q.strip(), max(1, page))
+            except KeyError:
+                raise HTTPException(404, f"no table named {table!r}") from None
+            counts = inspect.table_counts(conn)
+        return render(request, "data.html", title="Data", table=table, q=q, page=max(1, page),
+                      table_counts=counts, **contents)
+
+    @app.get("/jobs/{job_id}", response_class=HTMLResponse)
+    def job(request: Request, job_id: int) -> HTMLResponse:
+        with connection() as conn:
+            detail = inspect.job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(404, f"no job #{job_id}")
+        return render(request, "job.html", title=f"Job #{job_id}", **detail)
+
+    @app.get("/activity", response_class=HTMLResponse)
+    def activity(request: Request) -> HTMLResponse:
+        with connection() as conn:
+            snapshot = inspect.activity_snapshot(conn, cfg.data_dir / "jobhunt.log")
+        return render(request, "activity.html", title="Activity", **snapshot)
+
+    @app.get("/activity/live", response_class=HTMLResponse)
+    def activity_live(request: Request) -> HTMLResponse:
+        """The Activity page's body alone, which the open page swaps in every few seconds."""
+        with connection() as conn:
+            snapshot = inspect.activity_snapshot(conn, cfg.data_dir / "jobhunt.log")
+        return templates.TemplateResponse(request, "_activity.html", snapshot)
+
     @app.post("/backup")
     def backup_now() -> RedirectResponse:
         backup(cfg)  # records its own time and result, which Health shows
@@ -227,7 +345,9 @@ def _tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
         "New": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED} AND j.first_seen_at > ?", since),
         "All open": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED}"),
         "Removed": one("SELECT COUNT(*) FROM jobs WHERE stage IN ('code_removed', 'removed')"),
-        "Applied": one("SELECT COUNT(*) FROM jobs WHERE status != 'none'"),
+        "Applied": one(f"SELECT COUNT(*) FROM jobs j WHERE {_APPLIED}"),
+        "Not interested": one("SELECT COUNT(*) FROM jobs WHERE status = 'not_interested'"),
+        "Skills": inspect.distinct_skill_count(conn),
     }
 
 
@@ -265,16 +385,16 @@ def _health(conn: sqlite3.Connection, cfg: Config) -> dict[str, Any]:
     disable_after = int(cfg.fetch["disable_after_fails"])
 
     sources = []
-    for src in conn.execute("SELECT * FROM sources WHERE collector NOT IN ('manual') ORDER BY id"):
-        tally = last.get("sources", {}).get(src["id"], {})
+    for src in conn.execute("SELECT * FROM sources WHERE collector NOT IN ('manual') ORDER BY name COLLATE NOCASE"):
+        tally = db.loads(src["last_tally"], {})  # its latest run, nightly or by hand
         nightly_new = [r["counts"].get("sources", {}).get(src["id"], {}).get("new_jobs", 0) for r in runs]
-        average = sum(nightly_new) / len(nightly_new) if nightly_new else 0.0
+        average = sum(nightly_new) / len(nightly_new) if nightly_new else None
         flags = []
         if src["fail_streak"] >= disable_after:
             flags.append("disabled")
         elif src["fail_streak"] > 0:
             flags.append("blocked")
-        if tally.get("requests", 0) > 0 and tally.get("parsed", 0) == 0 and average >= 5:
+        if tally.get("requests", 0) > 0 and tally.get("parsed", 0) == 0 and (average or 0) >= 5:
             flags.append("parser broken")
         sources.append(dict(src) | {"tally": tally, "average": average, "flags": flags})
 

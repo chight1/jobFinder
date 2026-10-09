@@ -85,6 +85,12 @@ _SKILL_ALIASES = {
     "js": "javascript", "ecmascript": "javascript", "ts": "typescript", "golang": "go",
     "nodejs": "node.js", "node": "node.js", "reactjs": "react", "react.js": "react",
     "csharp": "c#", "c sharp": "c#", "py": "python", "k8s": "kubernetes", "postgres": "postgresql",
+    "html5": "html", "css3": "css", "spring": "spring boot", "springboot": "spring boot",
+    "amazon web services": "aws", "oracle database": "oracle", "oracle db": "oracle",
+    "rails": "ruby on rails", "ror": "ruby on rails", "nextjs": "next.js", "next": "next.js",
+    "red hat openshift": "openshift", "github action": "github actions", "loadrunner cloud": "loadrunner",
+    "microservice": "microservices", "microservices architecture": "microservices",
+    "large language models": "llm integration", "llms": "llm integration", "llm": "llm integration",
 }
 
 

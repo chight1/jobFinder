@@ -1,7 +1,14 @@
 {% macro job_row(job, top=false) %}
-<article class="job{% if top %} top{% endif %}" id="job-{{ job.id }}" data-score="{{ job.score or 0 }}">
+<article class="job{% if top %} top{% endif %}" id="job-{{ job.id }}" data-score="{{ job.score or 0 }}"
+         data-rating="{{ job.rating or '' }}">
   <div class="score">{{ "%.0f"|format(job.score or 0) }}</div>
   <div class="body">
+    <form method="post" action="/jobs/{{ job.id }}/rating" class="rate" aria-label="Rate this job">
+      {% for color in ratings %}
+      <button name="rating" value="{{ color }}" class="dot {{ color }}" title="{{ color }}"
+              aria-pressed="{{ 'true' if job.rating == color else 'false' }}"></button>
+      {% endfor %}
+    </form>
     <h2>
       <a href="{{ job.url }}" target="_blank" rel="noreferrer">{{ job.title }}</a>
       {% for badge in job.badges %}<span class="badge {{ badge }}">{{ badge }}</span>{% endfor %}
@@ -18,17 +25,26 @@
       {% for other in job.others %} · <a href="{{ other.url }}" target="_blank" rel="noreferrer">{{ other.name }}</a>{% endfor %}
       {% for same in job.probably_same %} · probably the same as #{{ same }}{% endfor %}
       {% if job.has_packet %} · <a href="/packets/{{ job.id }}">packet</a>{% endif %}
-      · #{{ job.id }}
+      · <a href="/jobs/{{ job.id }}">#{{ job.id }} details</a>
     </p>
+    {% if job.facts.stack %}
+    <p class="skills">
+      {% for skill in job.facts.stack %}
+      <a class="chip{% if skill_level(skill) %} have{% endif %}" href="/skills/{{ canonical_skill(skill)|urlencode }}"
+         title="{% if skill_level(skill) %}in your profile, level {{ skill_level(skill) }}{% else %}not in your profile{% endif %}">{{ skill }}</a>
+      {% endfor %}
+    </p>
+    {% endif %}
     {{ caller() if caller }}
   </div>
 </article>
 {% endmacro %}
 
 {% macro status_buttons(job) %}
-<form method="post" action="/jobs/{{ job.id }}/status" class="actions">
+<form method="post" action="/jobs/{{ job.id }}/status" class="actions status">
   {% for status in statuses %}
   <button name="status" value="{{ status }}"{% if job.status == status %} disabled{% endif %}>{{ button_labels.get(status, status) }}</button>
   {% endfor %}
+  {% if job.status != "none" %}<button name="status" value="none">clear status</button>{% endif %}
 </form>
 {% endmacro %}

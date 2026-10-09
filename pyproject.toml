@@ -18,6 +18,7 @@ dependencies = [
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
     "tzdata>=2024.1",  # zoneinfo has no system time zone database on Windows
+    "tomlkit>=0.13",  # edits profile.toml from the Skills page without losing its comments
 ]
 
 [project.optional-dependencies]

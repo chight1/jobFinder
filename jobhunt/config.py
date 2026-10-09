@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,7 @@ class Config:
     list: dict[str, Any]
     packets: dict[str, Any]
     profile: Profile
+    profile_path: Path
     backup_dir: Path
     backup_nightly: bool
 
@@ -63,7 +67,7 @@ def load(root: Path) -> Config:
         years_experience=float(prof["years_experience"]),
         pay_floor_usd=float(prof["pay_floor_usd"]),
         commutable_cities=frozenset(c.strip().lower() for c in prof.get("commutable_cities", [])),
-        skills={name.strip().lower(): int(level) for name, level in prof.get("skills", {}).items()},
+        skills=_skills(prof),
         forbidden_names=tuple(n for n in packets_prof.get("forbidden_names", []) if n.strip()),
         stand_in=packets_prof.get("stand_in", "a large-scale federal modernization program"),
     )
@@ -82,6 +86,24 @@ def load(root: Path) -> Config:
         list=raw["list"],
         packets=raw["packets"],
         profile=profile,
+        profile_path=root / "profile.toml",
         backup_dir=(root / raw["backup"]["repo_dir"]).resolve(),
         backup_nightly=bool(raw["backup"].get("nightly", False)),
     )
+
+
+def _skills(prof: dict[str, Any]) -> dict[str, int]:
+    return {name.strip().lower(): int(level) for name, level in prof.get("skills", {}).items()}
+
+
+def reload_skills(cfg: Config) -> None:
+    """Read the skills again, so edits from the Skills page reach a process already running.
+    A file caught mid-save or broken by a hand edit keeps the skills as they were."""
+    try:
+        with open(cfg.profile_path, "rb") as f:
+            fresh = _skills(tomllib.load(f))
+    except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+        log.warning("skills not reloaded from %s: %s", cfg.profile_path, exc)
+        return
+    cfg.profile.skills.clear()  # the same dict everywhere, so every holder of cfg sees the change
+    cfg.profile.skills.update(fresh)

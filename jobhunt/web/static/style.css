@@ -10,6 +10,9 @@
   --unicorn: #7c3aed;
   --check: #b45309;
   --dispatch: #0f766e;
+  --rate-green: #16a34a;
+  --rate-yellow: #ca8a04;
+  --rate-red: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +28,9 @@
     --unicorn: #c4b5fd;
     --check: #fbbf24;
     --dispatch: #5eead4;
+    --rate-green: #4ade80;
+    --rate-yellow: #facc15;
+    --rate-red: #f87171;
   }
 }
 
@@ -47,6 +53,7 @@ nav {
   background: var(--surface);
   position: sticky;
   top: 0;
+  z-index: 10;  /* above the tiles, which are positioned so their rating dots can sit in the corner */
 }
 
 nav a {
@@ -78,6 +85,28 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 }
 
 .job.top { background: var(--top); }
+.job { position: relative; }
+
+/* Rating: three dots in the top-right corner; a rated tile gets a colored left edge. */
+.rate { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+.dot {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--dot);
+  background: transparent;
+  opacity: 0.55;
+}
+.dot:hover { opacity: 1; border-color: var(--dot); }
+.dot[aria-pressed="true"] { background: var(--dot); opacity: 1; }
+.dot.green { --dot: var(--rate-green); }
+.dot.yellow { --dot: var(--rate-yellow); }
+.dot.red { --dot: var(--rate-red); }
+.job[data-rating="green"] { box-shadow: inset 4px 0 0 var(--rate-green); }
+.job[data-rating="yellow"] { box-shadow: inset 4px 0 0 var(--rate-yellow); }
+.job[data-rating="red"] { box-shadow: inset 4px 0 0 var(--rate-red); }
+.job .body { padding-right: 72px; }  /* room for the dots */
 .job.fresh { animation: fresh 4s ease-out; }
 
 @keyframes fresh {
@@ -129,11 +158,70 @@ button:hover { border-color: var(--muted); }
 button:disabled { opacity: 0.5; cursor: default; }
 
 .flag { color: var(--flag); font-weight: 600; }
+
+.skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px !important; }
+.chip {
+  display: inline-block;
+  padding: 0 7px;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  text-decoration: none;
+}
+a.chip:hover { border-color: var(--muted); color: var(--text); }
+.chip.have { border-color: var(--accent); color: var(--accent); }
+
+.skills-table td:nth-child(3) { min-width: 140px; }
+.add-skill { margin: 8px 0 12px; }
+
+/* Skill level pickers: 3 green, 2 yellow, 1 red; not in the profile stays plain. */
+.level select[data-level="3"] { --lvl: var(--rate-green); }
+.level select[data-level="2"] { --lvl: var(--rate-yellow); }
+.level select[data-level="1"] { --lvl: var(--rate-red); }
+.level select:not([data-level="0"]) {
+  border-color: var(--lvl);
+  background: color-mix(in srgb, var(--lvl) 22%, var(--surface));
+  font-weight: 600;
+}
+.bar {
+  display: inline-block;
+  width: 80px;
+  height: 8px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--accent) var(--share), var(--line) var(--share));
+}
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tr.flagged td { background: color-mix(in srgb, var(--flag) 8%, transparent); }
 td form { display: inline; }
+
+section { margin: 16px 0 24px; }
+section h2 { font-size: 16px; margin: 0 0 8px; }
+section h3 { font-size: 14px; margin: 12px 0 6px; }
+.muted { color: var(--muted); }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 3px 0; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.search { display: flex; gap: 4px; }
+.search input {
+  font: inherit; font-size: 13px; padding: 3px 8px; min-width: 0;
+  color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+}
+
+nav.tables { position: static; display: flex; flex-wrap: wrap; gap: 2px; padding: 4px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; }
+table.data td { max-width: 320px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+table.data td.detail { max-width: 480px; }
+.pager { display: flex; gap: 12px; justify-content: center; font-size: 13px; }
+.log { font-size: 12px; max-height: 420px; overflow: auto; }
 
 .packet {
   white-space: pre-wrap;

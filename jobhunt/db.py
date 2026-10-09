@@ -168,6 +168,33 @@ MIGRATIONS: list[str] = [
     ALTER TABLE jobs ADD COLUMN listed_at TEXT;
     CREATE INDEX jobs_listed ON jobs(listed_at);
     """,
+    # What each running command and worker is doing right now, for the Activity page.
+    """
+    CREATE TABLE activity (
+        worker TEXT PRIMARY KEY,         -- run:nightly, fetch:tokyodev, model, ...
+        doing TEXT NOT NULL,
+        since TEXT NOT NULL
+    );
+    """,
+    # How much the candidate likes a job, set from its tile; separate from status, so rated jobs stay listed.
+    """
+    ALTER TABLE jobs ADD COLUMN rating TEXT;  -- green, yellow, red, or NULL
+    """,
+    """
+    -- text.short_location for rows stored before it existed: more than 10 places becomes "Anywhere".
+    UPDATE sightings
+    SET location_raw = 'Anywhere (' || (length(location_raw) - length(replace(location_raw, ';', '')) + 1) || ' places)'
+    WHERE length(location_raw) - length(replace(location_raw, ';', '')) >= 10;
+    """,
+    """
+    -- Why a model call has ok = 0: the server's error, or "invalid reply: ..." when the answer
+    -- arrived but was not the JSON asked for.
+    ALTER TABLE llm_log ADD COLUMN error TEXT;
+    """,
+    """
+    -- A source's totals from its latest run, nightly or one source by hand (JSON: requests, parsed, ...).
+    ALTER TABLE sources ADD COLUMN last_tally TEXT;
+    """,
 ]
 
 
@@ -221,6 +248,31 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
         "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+
+
+# --- activity: what is running right now -----------------------------------------
+
+
+def set_activity(conn: sqlite3.Connection, worker: str, doing: str) -> None:
+    conn.execute(
+        "INSERT INTO activity (worker, doing, since) VALUES (?, ?, ?) "
+        "ON CONFLICT (worker) DO UPDATE SET doing = excluded.doing, since = excluded.since",
+        (worker, doing, utc_now()),
+    )
+
+
+def clear_activity(conn: sqlite3.Connection, worker: str) -> None:
+    conn.execute("DELETE FROM activity WHERE worker = ?", (worker,))
+
+
+@contextmanager
+def activity(conn: sqlite3.Connection, worker: str, doing: str) -> Iterator[None]:
+    """Show `doing` on the Activity page for as long as the block runs."""
+    set_activity(conn, worker, doing)
+    try:
+        yield
+    finally:
+        clear_activity(conn, worker)
 
 
 # --- sources.csv -------------------------------------------------------------

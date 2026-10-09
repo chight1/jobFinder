@@ -27,6 +27,13 @@ from jobhunt import rules
         ("Remote, open to candidates in any country", "remote"),
         ("AI Engineer | REMOTE", "remote"),  # "AI" is a role here, not Anguilla
         ("Osaka, JP", "japan"),
+        ("Anywhere in Germany", "outside"),
+        ("Remote, anywhere in the US", "outside"),
+        ("Anywhere in the world", "anywhere"),
+        ("Anywhere in Japan", "japan"),
+        ("Internationally located (not in the US, CA, UK, NZ, or AU)", "unknown"),
+        ("Remote - Europe, excluding Germany", "outside"),
+        ("Remote, outside IR35, UK", "outside"),
         ("", "unknown"),
         ("Head office", "unknown"),
     ],

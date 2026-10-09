@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="view-head"><h1>Activity</h1><span class="meta">updates every 5 seconds</span></header>
+<div id="activity">
+  {% include "_activity.html" %}
+</div>
+<script src="{{ asset('activity.js') }}"></script>
+{% endblock %}

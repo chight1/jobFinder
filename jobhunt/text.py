@@ -55,3 +55,12 @@ def to_text(description: str | None) -> str:
 
 def words(text: str) -> list[str]:
     return re.findall(r"\w+", nfkc(text).lower())
+
+
+MANY_PLACES = 10  # more places than this ("JP; AF; AX; ...") means the job is open almost anywhere
+
+
+def short_location(location: str) -> str:
+    """A location listing a long run of places, shortened to "Anywhere (N places)"."""
+    places = [p for p in location.split(";") if p.strip()]
+    return f"Anywhere ({len(places)} places)" if len(places) > MANY_PLACES else location

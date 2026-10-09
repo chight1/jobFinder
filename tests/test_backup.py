@@ -12,6 +12,7 @@ def test_dump_and_restore_round_trip(cfg, conn, tmp_path):
     db.sync_sources(conn, ROOT / "sources.csv")
     db.set_setting(conn, "last_list_visit", "2026-10-08T00:00:00+00:00")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    sources = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
     conn.close()  # Windows cannot move an open database file
 
     repo = tmp_path / "backup-repo"
@@ -26,7 +27,7 @@ def test_dump_and_restore_round_trip(cfg, conn, tmp_path):
     restored = db.connect(cfg.db_path)
     try:
         assert restored.execute("PRAGMA user_version").fetchone()[0] == version
-        assert restored.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 51
+        assert restored.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == sources
         assert db.get_setting(restored, "last_list_visit") == "2026-10-08T00:00:00+00:00"
     finally:
         restored.close()

@@ -7,21 +7,24 @@ until model_stop and always takes the highest-priority work first.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from typing import Any, Iterator
+from pathlib import Path
+from typing import IO, Any, Iterator
 from urllib.parse import urlsplit
 
 from jobhunt import collectors, db, packets, score
 from jobhunt.backup import backup
 from jobhunt.collectors.runner import Runner, Shared, Tally, close_job_if_unseen, record_outcome
-from jobhunt.config import Config
+from jobhunt.config import Config, reload_skills
 from jobhunt.dedupe import AgencyIndex, judge_pair, merge_jobs
 from jobhunt.fetch import DailyCapReached, Fetcher, FetchError, SourceBlocked
 from jobhunt.llm import EXTRACT_PROMPT_VERSION, LLM, InvalidOutput, LLMError, extract
@@ -163,12 +166,21 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
     runner = Runner(shared, conn)
     tally = Tally()
     blocked: str | None = None
+    worker = f"fetch:{source['id']}"
+    started = db.utc_now()
+
+    def show(doing: str) -> None:
+        if not shared.dry_run:
+            db.set_activity(conn, worker, doing)
+
     try:
+        show(f"collecting {source['name']}")
         if source["collector"] in collectors.BOARD_COLLECTORS:
             for board in _due_boards(conn, source["collector"]):
                 if time.time() >= shared.deadline:
                     break
                 own_site = source["collector"] in PER_TENANT_HOSTS
+                show(f"collecting {source['name']} board {board['slug']}")
                 try:
                     board_tally = runner.run_board(source, board)
                 except SourceBlocked as exc:
@@ -190,8 +202,10 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
             tally = runner.run_source(source)
     except SourceBlocked as exc:
         blocked = str(exc)
+        tally.add(runner.unfinished or Tally())
         tally.status = "blocked"
     except DailyCapReached:
+        tally.add(runner.unfinished or Tally())
         tally.status = "daily cap reached"
     except Exception as exc:
         log.exception("source %s failed", source["id"])
@@ -199,7 +213,11 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
         tally.status = f"error: {exc!r}"[:200]
     finally:
         if not shared.dry_run:
-            record_outcome(conn, shared.cfg, source, tally, blocked)
+            requests = conn.execute(
+                "SELECT COUNT(*) FROM fetch_log WHERE source_id = ? AND at >= ?", (source["id"], started)
+            ).fetchone()[0]
+            record_outcome(conn, shared.cfg, source, tally, blocked, requests=requests)
+            db.clear_activity(conn, worker)
         conn.close()
     log.info("%s: %s", source["id"], tally)
     return tally
@@ -293,6 +311,43 @@ def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, fetch_done: threadin
     A task that fails is skipped for the rest of the run; only a failing server stops the worker.
     """
     counts = {"packets": 0, "pairs": 0, "extracted": 0, "extract_failed": 0, "removed": 0, "comparisons": 0}
+    with _model_lock(cfg.db_path.parent / "model.lock") as only_worker:
+        if not only_worker:
+            log.info("a model worker is already running; the queue is left to it")
+            return counts
+        return _work_queue(cfg, gaz, stop_at, fetch_done, counts)
+
+
+@contextmanager
+def _model_lock(path: Path) -> Iterator[bool]:
+    """True when no other model worker is running. Two would split the processor and could take the
+    same job, so the second one stops. The OS frees the lock when a worker exits, even by crashing."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as handle:
+        handle.seek(0)
+        try:
+            _lock_file(handle, lock=True)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            _lock_file(handle, lock=False)
+
+
+def _lock_file(handle: IO[bytes], *, lock: bool) -> None:
+    """Lock (without waiting) or unlock a file; the lock holds against every other open of it."""
+    if os.name == "nt":
+        import msvcrt
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK if lock else msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB if lock else fcntl.LOCK_UN)
+
+
+def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, fetch_done: threading.Event | None,
+                counts: dict[str, int]) -> dict[str, int]:
     conn = db.connect(cfg.db_path)
     try:
         llm = LLM(cfg, conn)
@@ -303,6 +358,7 @@ def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, fetch_done: threadin
     skipped: set[Task] = set()
     try:
         while time.time() < stop_at:
+            reload_skills(cfg)  # levels changed on the Skills page apply from the next job on
             task = _next_task(conn, cfg, skipped)
             if task is None:
                 if fetch_done is None or fetch_done.is_set():
@@ -321,6 +377,7 @@ def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, fetch_done: threadin
     except LLMError as exc:
         log.error("model worker stopped: %s", exc)
     finally:
+        db.clear_activity(conn, "model")
         llm.close()
         conn.close()
     return counts
@@ -347,8 +404,28 @@ def _next_task(conn: sqlite3.Connection, cfg: Config, skipped: set[Task]) -> Tas
     return None
 
 
+def _describe(conn: sqlite3.Connection, task: Task) -> str:
+    """The task in words for the Activity page, e.g. 'extracting #42 Backend Engineer'."""
+    kind, target = task
+
+    def title(job_id: int) -> str:
+        row = conn.execute(
+            "SELECT s.title FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id WHERE j.id = ?", (job_id,)
+        ).fetchone()
+        return f"#{job_id} {row['title'] if row else ''}".strip()
+
+    if kind == "packet":
+        return f"drafting a packet for {title(target)}"
+    if kind == "pair":
+        return f"deciding whether #{target[0]} and #{target[1]} are the same job"
+    if kind == "extract":
+        return f"extracting {title(target)}"
+    return f"comparing #{target[0]} with #{target[1]}"
+
+
 def _run_task(conn: sqlite3.Connection, llm: LLM, cfg: Config, gaz: Gazetteer, task: Task, counts: dict[str, int]) -> None:
     kind, target = task
+    db.set_activity(conn, "model", _describe(conn, task))
     if kind == "packet":
         packets.make_packet(conn, llm, cfg, target)
         counts["packets"] += 1

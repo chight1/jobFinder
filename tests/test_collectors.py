@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 from httpx import URL
 
-from jobhunt.collectors import BoardGone, Context, Summary, ashby, greenhouse, hn, json_apis, lever, pages, workday
+from jobhunt.collectors import BoardGone, Context, Summary, ashby, greenhouse, hn, json_apis, lever, pages, rss, workday
+from jobhunt.collectors.runner import detail_loader
 from jobhunt.discover import board_from_url
 from jobhunt.fetch import Page
 
@@ -169,6 +170,49 @@ def test_remoteok_skips_legal_notice():
                                  "salary_min": 0, "salary_max": 0, "epoch": 1_790_000_000}]
     summaries = json_apis._remoteok(data)
     assert len(summaries) == 1 and summaries[0].fields == {}
+
+
+def test_categories_keep_only_listed_ones():
+    url = "https://www.workingnomads.com/api/exposed_jobs/"
+    fetcher = FakeFetcher({url: [
+        {"url": "https://www.workingnomads.com/jobs/dev", "title": "Backend Developer", "category_name": "Development"},
+        {"url": "https://www.workingnomads.com/jobs/seo", "title": "SEO Strategist", "category_name": "Marketing"},
+    ]})
+    ctx = ctx_for(fetcher, {"api": "workingnomads", "url": url, "categories": ["Development"]})
+    listing = json_apis.list_postings(ctx, None)
+    assert [s.title for s in listing.summaries] == ["Backend Developer"]
+
+
+def test_several_searches_merge_by_id():
+    url = "https://jobicy.com/api/v2/remote-jobs"
+    job = lambda n, geo: {"id": n, "url": f"https://jobicy.com/jobs/{n}", "jobTitle": f"Job {n}", "jobGeo": geo}
+    fetcher = FakeFetcher({
+        f"{url}?industry=dev": {"jobs": [job(1, "Anywhere"), job(2, "APAC")]},
+        f"{url}?geo=japan&industry=dev": {"jobs": [job(2, "APAC"), job(3, "Japan")]},
+    })
+    ctx = ctx_for(fetcher, {"api": "jobicy", "url": url,
+                            "params": [{"industry": "dev"}, {"geo": "japan", "industry": "dev"}]})
+    listing = json_apis.list_postings(ctx, None)
+    assert sorted(s.external_id for s in listing.summaries) == ["1", "2", "3"]
+    assert len(fetcher.requests) == 2
+
+
+def test_feed_place_line_after_the_teaser():
+    entry = {"title": "Senior Engineer", "link": "https://startup.jobs/senior-engineer-1",
+             "summary": "We build things. Key...\n\nSan Francisco, California, U.S. · $150,000 · $400,000 per year"}
+    assert rss._summary(entry, {"location_in_text": True}).location == "San Francisco, California, U.S."
+    assert rss._summary(entry | {"summary": "Only a teaser..."}, {"location_in_text": True}).location == ""
+
+
+def test_feed_title_with_the_company_after_at():
+    entry = {"title": "Head of Data at Chess.com", "link": "https://example.com/1", "author": "Chess.com"}
+    summary = rss._summary(entry, {"title_format": "title at company"})
+    assert (summary.title, summary.company) == ("Head of Data", "Chess.com")
+
+
+def test_detail_browser_sends_job_pages_through_the_browser():
+    assert detail_loader(json_apis, {}) is json_apis
+    assert detail_loader(json_apis, {"detail_browser": True}).__name__ == "jobhunt.collectors.browser"
 
 
 def test_amazon_date():

@@ -1,4 +1,7 @@
 """Public job-board JSON APIs. Source config "api" picks the parser; "url" and "params" the request.
+"params" may be a list of param sets: each is its own search, and the jobs are merged by id.
+"categories", when given, keeps only jobs whose category (fields["category"]) is listed, for APIs
+that cannot filter by category themselves.
 
 The lists are newest first. Paged APIs stop at the first page where every id is known.
 """
@@ -107,6 +110,7 @@ def _working_nomads(data: Any) -> list[Summary]:
             location=job.get("location", ""),
             posted_at=job.get("pub_date"),
             description=job.get("description"),
+            fields={"category": job.get("category_name")},
         )
         for job in data
     ]
@@ -156,19 +160,30 @@ _APIS: dict[str, tuple[Callable[[Any], list[Summary]], Callable[[int], dict[str,
 
 
 def list_postings(ctx: Context, cursor: dict | None) -> Listing:
+    params = ctx.config.get("params") or {}
+    found: dict[str, Summary] = {}
+    for one in params if isinstance(params, list) else [params]:
+        found = _search(ctx, one) | found  # a job in more than one search keeps its first copy
+    return Listing(list(found.values()), set(found))
+
+
+def _search(ctx: Context, base_params: dict[str, Any]) -> dict[str, Summary]:
     parse, paging = _APIS[ctx.config["api"]]
-    base_params = dict(ctx.config.get("params") or {})
     max_pages = int(ctx.config.get("max_pages", DEFAULT_MAX_PAGES)) if paging else 1
+    categories = set(ctx.config.get("categories") or ())
     found: dict[str, Summary] = {}
     for number in range(1, max_pages + 1):
         params = base_params | (paging(number) if paging else {})
         page = ctx.fetcher.get(ctx.source_id, ctx.config["url"], kind="api", params=params or None)
-        summaries = [s for s in parse(page.json()) if s.external_id and s.url]
+        summaries = [
+            s for s in parse(page.json())
+            if s.external_id and s.url and (not categories or s.fields.get("category") in categories)
+        ]
         fresh = {s.external_id: s for s in summaries if s.external_id not in found}
         found |= fresh
         if not fresh or not (set(fresh) - ctx.known(fresh)) or ctx.out_of_time():
             break
-    return Listing(list(found.values()), set(found))
+    return found
 
 
 def fetch_detail(ctx: Context, summary: Summary) -> Summary:

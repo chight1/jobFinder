@@ -2,9 +2,10 @@
 {% from "_job.html" import job_row, status_buttons %}
 {% block body %}
 <header class="view-head">
-  <h1>Applied <span class="count">{{ jobs|length }}</span></h1>
+  <h1>{{ title }} <span class="count" id="job-count">{{ jobs|length }}</span></h1>
 </header>
-{% if not jobs %}<p class="empty">No statuses set yet.</p>{% endif %}
+<p class="empty"{% if jobs %} hidden{% endif %}>{{ empty }}</p>
+<div data-statuses="{{ holds|join(' ') }}">
 {% for job in jobs %}
   {% call job_row(job) %}
   <p class="status-line">
@@ -16,4 +17,5 @@
   {{ status_buttons(job) }}
   {% endcall %}
 {% endfor %}
+</div>
 {% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% macro level_form(name, level) %}
+<form method="post" action="/skills/level" class="level">
+  <input type="hidden" name="name" value="{{ name }}">
+  <select name="level" aria-label="Your level in {{ name }}" data-level="{{ level or 0 }}">
+    {% for value in levels %}
+    <option value="{{ value }}"{% if value == (level or 0) %} selected{% endif %}>{{ value or "—" }}</option>
+    {% endfor %}
+  </select>
+  <button>save</button>
+</form>
+{% endmacro %}
+
+{% block body %}
+<header class="view-head">
+  <h1>Skills <span class="count">{{ skills|length }} across {{ job_count }} jobs</span></h1>
+  <nav class="tables" aria-label="Which jobs">
+    <a href="/skills?scope=kept"{% if scope == "kept" %} aria-current="page"{% endif %}>Kept, open jobs</a>
+    <a href="/skills?scope=all"{% if scope == "all" %} aria-current="page"{% endif %}>Every job the model read</a>
+  </nav>
+</header>
+
+<form method="post" action="/skills/level" class="search add-skill">
+  <input name="name" placeholder="Add a skill to your profile" aria-label="Skill name" required>
+  <select name="level" aria-label="Level">
+    {% for value in levels if value %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+  </select>
+  <button>add</button>
+</form>
+
+{% if not skills %}
+<p class="empty">No skills yet: they come from the model's reading of each job.</p>
+{% else %}
+<div class="table-wrap">
+  <table class="data skills-table">
+    <thead>
+      <tr><th>Skill</th><th>Jobs</th><th>Share of jobs</th><th>Main language</th><th>Your level</th><th>Avg score of its jobs</th></tr>
+    </thead>
+    <tbody>
+    {% for s in skills %}
+      <tr>
+        <td><a href="/skills/{{ s.key|urlencode }}">{{ s.name }}</a></td>
+        <td>{{ s.jobs }}</td>
+        <td>
+          <span class="bar" style="--share: {{ (s.share * 100)|round(1) }}%"></span>
+          {{ "%.0f"|format(s.share * 100) }}%
+        </td>
+        <td>{{ s.main or "" }}</td>
+        <td>{{ level_form(s.key, s.level) }}</td>
+        <td>{{ "%.0f"|format(s.avg_score) if s.avg_score is not none else "" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="meta">Spellings are merged ("JS" counts as JavaScript). "Main language" is how many of those jobs name it as the primary language.
+  Levels: 3 strong, 2 working, 1 could pick it up, — not in your profile. A change saves to profile.toml and rescores the jobs.</p>
+{% endif %}
+
+{% if unseen %}
+<section>
+  <h2>In your profile, in none of these jobs</h2>
+  <table class="data skills-table">
+    <tbody>
+    {% for name, level in unseen %}
+      <tr><td>{{ name }}</td><td>{{ level_form(name, level) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+<script src="{{ asset('skills.js') }}"></script>
+{% endblock %}

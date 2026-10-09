@@ -82,6 +82,9 @@ _NOT_PLACES = frozenset(
     "team mobile us-based eu-based within with to for at".split()
 )
 _ANYWHERE = frozenset({"worldwide", "anywhere", "global"})
+_ANYWHERE_IN = re.compile(r"\b(?:anywhere|worldwide|global)\s+(?:in|within)\b", re.IGNORECASE)  # "anywhere in India"
+# Places after these are the ones a job is NOT open to. Not "outside": UK posts say "outside IR35".
+_EXCLUSION = re.compile(r"\b(?:not\s+(?:in|from)|except|excluding)\b", re.IGNORECASE)
 _ASIA = re.compile(r"\basia\b|\bapac\b|asia[- ]?pacific", re.IGNORECASE)
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 _TOKEN = re.compile(r"[^\W\d_]+(?:['.&-][^\W\d_]+)*")
@@ -272,7 +275,7 @@ LocationCategory = Literal["japan", "asia", "anywhere", "remote", "outside", "un
 
 
 def classify_location(text: str, gaz: Gazetteer) -> LocationCategory:
-    text = nfkc(text or "").strip()
+    text = _EXCLUSION.split(nfkc(text or ""), maxsplit=1)[0].strip()  # only the places the job is open to
     if not text:
         return "unknown"
     places = gaz.find(text)
@@ -281,7 +284,7 @@ def classify_location(text: str, gaz: Gazetteer) -> LocationCategory:
         return "japan"
     if _ASIA.search(text):
         return "asia"
-    if words & _ANYWHERE:
+    if words & _ANYWHERE and not (places and _ANYWHERE_IN.search(text)):
         return "anywhere"
     if places:
         return "outside"

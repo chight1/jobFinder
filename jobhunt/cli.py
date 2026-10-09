@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     discover.add_argument("--force", action="store_true", help="re-read the current crawl")
 
     process = commands.add_parser("process", help="run the model worker now")
-    process.add_argument("--minutes", type=float, default=60)
+    process.add_argument("--minutes", type=float, help="stop after this long (default: when no work is left)")
 
     commands.add_parser("rescore", help="re-apply the fact rules and the formula; no model calls")
 
@@ -130,8 +130,12 @@ def cmd_init(cfg: Config, args: argparse.Namespace) -> int:
 def cmd_nightly(cfg: Config, args: argparse.Namespace) -> int:
     from jobhunt.nightly import nightly
 
-    _connect(cfg).close()
-    counts = nightly(cfg)
+    conn = _connect(cfg)
+    try:
+        with db.activity(conn, "run:nightly", "nightly run"):
+            counts = nightly(cfg)
+    finally:
+        conn.close()
     print(json.dumps({k: v for k, v in counts.items() if k != "sources"}, indent=2))
     return 0
 
@@ -139,15 +143,22 @@ def cmd_nightly(cfg: Config, args: argparse.Namespace) -> int:
 def cmd_collect(cfg: Config, args: argparse.Namespace) -> int:
     from jobhunt.nightly import collect
 
-    _connect(cfg).close()
-    tallies = collect(
-        cfg,
-        _gazetteer(cfg),
-        deadline=time.time() + args.minutes * 60,
-        run_started=datetime.now().astimezone(),
-        only_source=args.source,
-        dry_run=args.dry_run,
-    )
+    conn = _connect(cfg)
+    if not args.dry_run:
+        db.set_activity(conn, "run:collect", f"collecting {args.source or 'every due source'}")
+    try:
+        tallies = collect(
+            cfg,
+            _gazetteer(cfg),
+            deadline=time.time() + args.minutes * 60,
+            run_started=datetime.now().astimezone(),
+            only_source=args.source,
+            dry_run=args.dry_run,
+        )
+    finally:
+        if not args.dry_run:
+            db.clear_activity(conn, "run:collect")
+        conn.close()
     for source_id, tally in tallies.items():
         print(f"{source_id}: {tally}", file=sys.stderr)
     return 0
@@ -164,8 +175,16 @@ def cmd_discover(cfg: Config, args: argparse.Namespace) -> int:
 def cmd_process(cfg: Config, args: argparse.Namespace) -> int:
     from jobhunt.nightly import process
 
-    _connect(cfg).close()
-    print(process(cfg, _gazetteer(cfg), stop_at=time.time() + args.minutes * 60))
+    if args.minutes:
+        stop_at, doing = time.time() + args.minutes * 60, f"model worker, {args.minutes:g} minutes"
+    else:
+        stop_at, doing = float("inf"), "model worker, until the queue is empty"
+    conn = _connect(cfg)
+    try:
+        with db.activity(conn, "run:process", doing):
+            print(process(cfg, _gazetteer(cfg), stop_at=stop_at))
+    finally:
+        conn.close()
     return 0
 
 

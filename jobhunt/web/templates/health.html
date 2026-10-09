@@ -53,7 +53,7 @@
         <td>{{ s.tally.parsed or 0 }}</td>
         <td>{{ s.tally.new_jobs or 0 }}</td>
         <td>{{ s.tally.errors or 0 }}</td>
-        <td>{{ "%.1f"|format(s.average) }}</td>
+        <td>{% if s.average is not none %}{{ "%.1f"|format(s.average) }}{% else %}—{% endif %}</td>
         <td>{{ (s.backoff_until or "")[:16] }}{% if s.min_delay_s %} · gap {{ s.min_delay_s }}s{% endif %}</td>
         <td>
           {% for flag in s.flags %}<span class="flag">{{ flag }}</span> {% endfor %}

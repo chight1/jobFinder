@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import replace
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from selectolax.lexbor import LexborHTMLParser
@@ -52,6 +52,17 @@ def list_postings(ctx: Context, cursor: dict | None) -> Listing:
     config = ctx.config
     if ctx.board:
         config = board_config(ctx.board["ats"], ctx.board["slug"], config)
+
+    def load(url: str) -> tuple[int, str, str]:
+        page = ctx.fetcher.get(ctx.source_id, url)
+        return page.status, page.text, page.url
+
+    return list_from_pages(ctx, config, load)
+
+
+def list_from_pages(ctx: Context, config: dict[str, Any], load: Callable[[str], tuple[int, str, str]]) -> Listing:
+    """Walk the list pages and collect job links. load(url) gives (status, html, final url), so the
+    browser collector shares this loop and differs only in how a page is loaded."""
     pattern = re.compile(config["job_link"])
     whole = bool(config.get("whole_list"))
     paged = config.get("page_param") or config.get("page_url")
@@ -64,14 +75,14 @@ def list_postings(ctx: Context, cursor: dict | None) -> Listing:
             if ctx.out_of_time():
                 complete = False
                 break
-            page = ctx.fetcher.get(ctx.source_id, page_url(list_url, number, config))
-            if not page.ok:
-                if ctx.board and number == 1 and page.status in (404, 410):
+            status, text, final_url = load(page_url(list_url, number, config))
+            if not 200 <= status < 300:
+                if ctx.board and number == 1 and status in (404, 410):
                     raise BoardGone(ctx.board["slug"])
                 complete = number > 1  # a missing later page is the end of the list; a missing first page is not
                 break
             links: dict[str, Summary] = {}
-            for external_id, summary in job_links(page.text, page.url, pattern):
+            for external_id, summary in job_links(text, final_url, pattern):
                 # A card often links twice (logo, then title); keep the link that has text.
                 if external_id not in links or links[external_id].title == links[external_id].url:
                     links[external_id] = summary

@@ -21,7 +21,8 @@ from jobhunt.text import to_text
 
 log = logging.getLogger(__name__)
 
-EXTRACT_PROMPT_VERSION = "extract-1"
+# extract-2: trimming keeps all but filler sections, and unstated numbers are cleared.
+EXTRACT_PROMPT_VERSION = "extract-2"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -141,6 +142,7 @@ class LLM:
             try:
                 return schema.model_validate_json(_json_object(reply))
             except (ValidationError, ValueError) as exc:
+                self._mark_invalid(exc)
                 if attempt == 2:
                     raise InvalidOutput(str(exc)[:500]) from exc
                 messages += [
@@ -177,20 +179,29 @@ class LLM:
         try:
             resp = self._client.post(self._url, json=body)
         except httpx.TransportError as exc:
-            self._log(kind, job_id, time.monotonic() - started, ok=False)
-            raise LLMError(f"model server unreachable at {self._url}: {exc!r}") from exc
+            message = f"model server unreachable at {self._url}: {exc!r}"
+            self._log(kind, job_id, time.monotonic() - started, error=message)
+            raise LLMError(message) from exc
         seconds = time.monotonic() - started
         if resp.status_code != 200:
-            self._log(kind, job_id, seconds, ok=False)
+            message = f"model server answered HTTP {resp.status_code}: {resp.text[:300]}"
+            self._log(kind, job_id, seconds, error=message)
             error = RequestRejected if 400 <= resp.status_code < 500 else LLMError
-            raise error(f"model server answered HTTP {resp.status_code}: {resp.text[:300]}")
-        self._log(kind, job_id, seconds, ok=True)
+            raise error(message)
+        self._log(kind, job_id, seconds)
         return resp.json()["choices"][0]["message"].get("content") or ""
 
-    def _log(self, kind: str, job_id: int | None, seconds: float, *, ok: bool) -> None:
+    def _log(self, kind: str, job_id: int | None, seconds: float, *, error: str | None = None) -> None:
+        self._last_log_id = self._conn.execute(
+            "INSERT INTO llm_log (kind, job_id, seconds, ok, at, error) VALUES (?, ?, ?, ?, ?, ?)",
+            (kind, job_id, seconds, int(error is None), db.utc_now(), error),
+        ).lastrowid
+
+    def _mark_invalid(self, exc: Exception) -> None:
+        """The last call answered, but not with what was asked for: log it as a failure."""
+        reason = " ".join(str(exc).split())[:300]
         self._conn.execute(
-            "INSERT INTO llm_log (kind, job_id, seconds, ok, at) VALUES (?, ?, ?, ?, ?)",
-            (kind, job_id, seconds, int(ok), db.utc_now()),
+            "UPDATE llm_log SET ok = 0, error = ? WHERE id = ?", (f"invalid reply: {reason}", self._last_log_id)
         )
 
 
@@ -204,26 +215,40 @@ def _json_object(reply: str) -> str:
 
 # --- input trimming ----------------------------------------------------------------
 
-_KEEP_HEADING = re.compile(
-    r"requirement|qualification|responsibilit|\brole\b|location|remote|compensation|salary|benefit|hours",
+# Sections that never help judge a job: company history, culture, equal-opportunity and privacy text.
+# Everything else is kept, so a posting whose headings are unusual still reaches the model whole.
+_DROP_HEADING = re.compile(
+    r"^about (us|the company)\b|who we are|our (story|mission|culture|values|company|history)|"
+    r"\bculture\b|\bvalues\b|equal (employment )?opportunit|\beeo\b|diversity|inclusion|privacy|"
+    r"accommodation|why join|life at\b",
     re.IGNORECASE,
 )
 _MAX_HEADING_WORDS = 8
+_MAX_SHORT_HEADING_WORDS = 5
+_BULLET = re.compile(r"^\s*([-*•·]|\d+[.)])\s")
+MIN_KEPT_SHARE = 0.4  # trimming that keeps less than this share of the posting sends it whole instead
 
 
 def _heading(line: str) -> str | None:
-    """The heading text if this line is a heading, else None."""
+    """The heading text if this line is a heading, else None. A bullet point is never a heading."""
     stripped = line.strip()
     if stripped.startswith("#"):
         return stripped.lstrip("#").strip()
-    if not stripped or len(stripped.split()) > _MAX_HEADING_WORDS:
+    if not stripped or _BULLET.match(line) or len(stripped.split()) > _MAX_HEADING_WORDS:
         return None
     if stripped.endswith(":") or (stripped.isupper() and any(c.isalpha() for c in stripped)):
         return stripped.rstrip(":").strip()
-    # A short line on its own, such as a bold "Requirements", counts when it names a kept section.
-    if _KEEP_HEADING.search(stripped) and not stripped.endswith((".", ",", ";")):
+    # A short capitalized line on its own, such as a bold "Salary" or "About Canonical", starts a section.
+    # Reading a stray short line as a heading is harmless: only filler headings cause anything to be dropped.
+    words = stripped.split()
+    if len(words) <= _MAX_SHORT_HEADING_WORDS and stripped[0].isupper() and not stripped.endswith((".", ",", ";", "!", "?")):
         return stripped
     return None
+
+
+def _is_filler(heading: str, company: str) -> bool:
+    about_company = bool(company) and heading.lower() == f"about {company.lower()}"
+    return bool(_DROP_HEADING.search(heading)) or about_company
 
 
 def split_sections(text: str) -> list[tuple[str | None, str]]:
@@ -241,16 +266,18 @@ def split_sections(text: str) -> list[tuple[str | None, str]]:
     return [(h, b) for h, b in sections if h or b]
 
 
-def trim_description(description: str | None, cap: int) -> str:
-    """Keep the sections a reader needs to judge fit; drop company history, culture and EEO text."""
+def trim_description(description: str | None, cap: int, company: str = "") -> str:
+    """Drop company history, culture, equal-opportunity and privacy sections; keep everything else."""
     text = to_text(description)
-    sections = split_sections(text)
-    if all(h is None for h, _ in sections):
-        return text[:cap]
-    kept = [f"## {h}\n{b}" for h, b in sections if h and _KEEP_HEADING.search(h)]
-    if not kept:
-        return text[:cap]
-    return "\n\n".join(kept)[:cap]
+    kept = [
+        f"## {h}\n{b}" if h else b
+        for h, b in split_sections(text)
+        if not (h and _is_filler(h, company))
+    ]
+    trimmed = "\n\n".join(kept)
+    if len(trimmed) < MIN_KEPT_SHARE * len(text):
+        trimmed = text  # dropping most of a posting means a heading was misread
+    return trimmed[:cap]
 
 
 def load_posting(conn: sqlite3.Connection, job_id: int) -> dict[str, Any]:
@@ -279,7 +306,8 @@ def format_posting(posting: dict[str, Any], cap: int) -> str:
     ]
     if fields:
         header.append(f"Source fields: {json.dumps(fields, ensure_ascii=False)}")
-    return "\n".join(header) + "\n\n" + trim_description(posting.get("description"), cap)
+    body = trim_description(posting.get("description"), cap, posting.get("company") or "")
+    return "\n".join(header) + "\n\n" + body
 
 
 def posting_for_prompt(conn: sqlite3.Connection, job_id: int, cap: int) -> str:
@@ -292,7 +320,50 @@ def posting_for_prompt(conn: sqlite3.Connection, job_id: int, cap: int) -> str:
 def extract_posting(llm: LLM, cfg: Config, posting: dict[str, Any], job_id: int | None = None) -> Facts:
     text = format_posting(posting, cap=int(cfg.llm["input_cap_chars"]))
     messages = [{"role": "system", "content": EXTRACT_SYSTEM}, {"role": "user", "content": text}]
-    return llm.chat_json("extract", job_id, messages, Facts)
+    return drop_unsupported_numbers(llm.chat_json("extract", job_id, messages, Facts), text)
+
+
+# --- checking the model's numbers against the posting ------------------------------------
+
+_NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(k|K|千|万|m|M|million|mil)?(?![a-zA-Z])")
+_MULTIPLIERS = {"k": 1e3, "千": 1e3, "万": 1e4, "m": 1e6, "million": 1e6, "mil": 1e6}
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def numbers_in(text: str) -> list[float]:
+    """Every number written in the text, with "120k", "120,000", "800万" and "three" read as values."""
+    values = []
+    for digits, suffix in _NUMBER.findall(text):
+        try:
+            value = float(digits.replace(",", ""))
+        except ValueError:
+            continue
+        values.append(value * _MULTIPLIERS.get((suffix or "").lower(), 1.0))
+    values += [n for word, n in _NUMBER_WORDS.items() if re.search(rf"\b{word}\b", text, re.IGNORECASE)]
+    return values
+
+
+def _written(value: float | None, numbers: list[float]) -> bool:
+    return value is not None and any(abs(value - n) <= 0.01 * max(abs(value), 1.0) for n in numbers)
+
+
+def drop_unsupported_numbers(facts: Facts, posting_text: str) -> Facts:
+    """Clear any pay, years or office-days figure that the posting never states.
+
+    Small models fill numbers in from nothing; a figure that appears nowhere in the text they
+    read is a guess, and guessed pay would put a job at the top of the list.
+    """
+    numbers = numbers_in(posting_text)
+    update: dict[str, Any] = {}
+    if not (_written(facts.pay_min, numbers) or _written(facts.pay_max, numbers)):
+        update |= {"pay_min": None, "pay_max": None, "pay_currency": None, "pay_period": None}
+    if facts.years_required is not None and not _written(facts.years_required, numbers):
+        update["years_required"] = None
+    if facts.office_days_per_week is not None and not _written(facts.office_days_per_week, numbers):
+        update["office_days_per_week"] = None
+    return facts.model_copy(update=update) if update else facts
 
 
 def extract(conn: sqlite3.Connection, llm: LLM, cfg: Config, job_id: int) -> Facts:

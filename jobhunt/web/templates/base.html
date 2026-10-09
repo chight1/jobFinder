@@ -4,18 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }} · jobhunt</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="{{ asset('style.css') }}">
 </head>
 <body>
   <nav>
     {% for href, name in [("/new", "New"), ("/all", "All open"), ("/removed", "Removed"),
-                          ("/applied", "Applied"), ("/health", "Health")] %}
+                          ("/applied", "Applied"), ("/not-interested", "Not interested"), ("/skills", "Skills"), ("/health", "Health"), ("/activity", "Activity"),
+                          ("/data", "Data")] %}
     <a href="{{ href }}"{% if title == name %} aria-current="page"{% endif %}>{{ name }}
-      {%- if name in counts %} <span class="tab-count">{{ counts[name] }}</span>{% endif %}</a>
+      {%- if name in counts %} <span class="tab-count" data-tab="{{ name }}">{{ counts[name] }}</span>{% endif %}</a>
     {% endfor %}
   </nav>
   <main>
     {% block body %}{% endblock %}
   </main>
+  <script src="{{ asset('tiles.js') }}"></script>
 </body>
 </html>

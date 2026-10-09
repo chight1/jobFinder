@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import time
+
+import pytest
 
 from jobhunt import db
 from jobhunt.collectors import Summary
 from jobhunt.collectors.runner import Runner, Shared
 from jobhunt.dedupe import AgencyIndex
+from jobhunt.fetch import SourceBlocked
 from tests.conftest import ROOT
 from tests.test_collectors import FakeFetcher
 
@@ -37,8 +41,10 @@ def _run(runner, conn):
 
 def test_sync_sources_splits_boards_from_sources(conn):
     db.sync_sources(conn, ROOT / "sources.csv")
-    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 51
+    with (ROOT / "sources.csv").open(encoding="utf-8", newline="") as f:
+        rows = sum(1 for _ in csv.DictReader(f))
     assert conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 9
+    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == rows - 9  # every row is one or the other
     rakuten = conn.execute("SELECT * FROM companies WHERE ats = 'workday'").fetchone()
     assert db.loads(rakuten["extra"])["site"] == "RakutenInc"
 
@@ -72,6 +78,62 @@ def test_new_jobs_removed_queued_then_closed(conn, cfg, gaz):
 
     board = conn.execute("SELECT tier, last_job_count FROM companies WHERE slug = 'acme'").fetchone()
     assert tuple(board) == ("active", 1)
+
+
+def test_a_long_list_of_places_is_stored_as_anywhere(conn, cfg, gaz):
+    countries = "; ".join(["Tokyo, JP", "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR"])
+    responses = {
+        BOARD_URL: {"jobs": [_job(1, "Backend Engineer", countries)]},
+        f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs.&lt;/p&gt;"},
+    }
+    _run(_setup(conn, cfg, gaz, responses), conn)
+    assert conn.execute("SELECT location_raw FROM sightings").fetchone()[0] == "Anywhere (12 places)"
+    assert conn.execute("SELECT stage FROM jobs").fetchone()[0] == "queued"
+
+    # The migration gives rows stored before the rule the same treatment.
+    conn.execute("UPDATE sightings SET location_raw = ?", (countries,))
+    conn.executescript(db.MIGRATIONS[4])
+    assert conn.execute("SELECT location_raw FROM sightings").fetchone()[0] == "Anywhere (12 places)"
+
+
+def test_a_source_default_location_fills_a_blank_one(conn, cfg, gaz):
+    responses = {
+        BOARD_URL: {"jobs": [_job(1, "Backend Engineer", ""), _job(2, "Frontend Engineer", "London, UK")]},
+        f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs.&lt;/p&gt;"},
+    }
+    runner = _setup(conn, cfg, gaz, responses)
+    source = conn.execute("SELECT * FROM sources WHERE id = 'greenhouse'").fetchone()
+    board = conn.execute("SELECT * FROM companies WHERE slug = 'acme'").fetchone()
+    conn.execute("UPDATE companies SET extra = ? WHERE id = ?", (db.dumps({"default_location": "Worldwide"}), board["id"]))
+    runner.run_board(source, conn.execute("SELECT * FROM companies WHERE slug = 'acme'").fetchone())
+    places = dict(conn.execute("SELECT external_id, location_raw FROM sightings").fetchall())
+    assert places == {"1": "Worldwide", "2": "London, UK"}  # a posting's own location still wins
+
+    conn.execute("DELETE FROM sightings")
+    conn.execute("DELETE FROM jobs")
+    conn.execute("UPDATE companies SET extra = ? WHERE id = ?", (db.dumps({"fixed_location": "Remote (open to Japan)"}), board["id"]))
+    runner.run_board(source, conn.execute("SELECT * FROM companies WHERE slug = 'acme'").fetchone())
+    places = set(r[0] for r in conn.execute("SELECT location_raw FROM sightings"))
+    assert places == {"Remote (open to Japan)"}  # a fixed one wins over the posting's
+
+
+def test_a_block_keeps_the_totals_of_what_came_before_it(conn, cfg, gaz):
+    responses = {
+        BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo"), _job(2, "Frontend Engineer", "Osaka")]},
+        f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs.&lt;/p&gt;"},
+    }
+    runner = _setup(conn, cfg, gaz, responses)
+    fake_get = runner.s.fetcher.get
+
+    def get(source_id, url, **kwargs):
+        if url == f"{BOARD_URL}/2":
+            raise SourceBlocked("challenge page")
+        return fake_get(source_id, url, **kwargs)
+
+    runner.s.fetcher.get = get
+    with pytest.raises(SourceBlocked):
+        _run(runner, conn)
+    assert (runner.unfinished.parsed, runner.unfinished.new_jobs) == (2, 1)
 
 
 def test_same_key_from_second_source_attaches(conn, cfg, gaz):

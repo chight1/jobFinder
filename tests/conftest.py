@@ -51,9 +51,13 @@ def profile() -> Profile:
 def cfg(tmp_path: Path, profile: Profile) -> Config:
     """The repository's config.toml with a test profile and a temporary data folder."""
     loaded = config_module.load(ROOT)
+    profile_path = tmp_path / "profile.toml"  # the same skills as the profile fixture, so reloads change nothing
+    profile_path.write_text(
+        "[skills]\njavascript = 3  # keep this comment\nreact = 3\njava = 2\npython = 1\n", encoding="utf-8"
+    )
     return dataclasses.replace(
-        loaded, profile=profile, data_dir=tmp_path / "data", packets_dir=tmp_path / "packets",
-        resumes_dir=tmp_path / "resumes",
+        loaded, profile=profile, profile_path=profile_path, data_dir=tmp_path / "data",
+        packets_dir=tmp_path / "packets", resumes_dir=tmp_path / "resumes",
     )
 
 
