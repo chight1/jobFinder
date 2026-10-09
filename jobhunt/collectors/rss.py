@@ -7,6 +7,8 @@ Source config:
                     "title, company" when they carry it after a last comma (Python.org)
     title_prefix    text every entry title starts with, cut off ("Remote " on RemoteYeah)
     company_field   entry key holding the company (default "author")
+    company_place_split  text that splits the company field into company, then place
+                    (Jobspresso: "Hopper<br>⚲&nbsp;Canada")
     location_field  entry key holding the location (default "location", then "region")
     location_in_text  true when the entry text ends with a "Place · pay" line (startup.jobs)
     location_first_line  true when the entry text starts with the place, as "City, Region, Country" (Python.org)
@@ -16,6 +18,8 @@ Source config:
 
 from __future__ import annotations
 
+import html
+import re
 import time
 from typing import Any
 
@@ -66,6 +70,11 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     if prefix and title.startswith(prefix):
         title = title[len(prefix):]
     company = entry.get(config.get("company_field", "author"), "")
+    place = ""
+    split = config.get("company_place_split")
+    if split and split in company:
+        company, place = (html.unescape(part).strip() for part in company.split(split, 1))
+        place = re.sub(r"^\W+", "", place)  # a pin symbol before the place
     if config.get("title_format") == "company: title" and ":" in title:
         company, title = (part.strip() for part in title.split(":", 1))
     elif config.get("title_format") == "title at company" and " at " in title:
@@ -86,7 +95,7 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     if config.get("location_field"):
         location = entry.get(config["location_field"], "")
     else:
-        location = entry.get("location", "") or entry.get("region", "")
+        location = entry.get("location", "") or entry.get("region", "") or place
     if config.get("location_first_line") and not location:
         first = next((line for line in to_text(text).splitlines() if line.strip()), "")
         parts = [part.strip() for part in first.split(",") if part.strip()]

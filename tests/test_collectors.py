@@ -242,6 +242,12 @@ def test_feed_title_with_the_company_after_a_comma_and_the_place_first():
     assert (summary.title, summary.company) == ("Back-End Python Engineer", "ActivePrime, Inc.")
 
 
+def test_feed_company_field_that_also_holds_the_place():
+    entry = {"title": "Staff Software Engineer", "link": "https://example.com/1", "author": "Samsara<br>⚲&nbsp;Canada"}
+    summary = rss._summary(entry, {"company_place_split": "<br>"})
+    assert (summary.company, summary.location) == ("Samsara", "Canada")
+
+
 def test_a_feed_can_send_every_entry_to_its_job_page():
     entry = {"title": "Machine Learning Engineer at Twilio", "link": "https://example.com/1", "summary": "x" * 600}
     assert rss._summary(entry, {}).description == "x" * 600  # long enough: no job page
