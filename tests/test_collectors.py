@@ -165,6 +165,27 @@ def test_hn_comment_first_line():
     assert summary.url == "https://news.ycombinator.com/item?id=5"
 
 
+@pytest.mark.parametrize(
+    ("first_line", "location"),
+    [
+        ("KSC Trading | Senior Backend Engineer | Remote | Full-Time | $200k to $250k USD", "Remote"),
+        ("ALBERT | Principal Engineer | REMOTE ALMOST ANYWHERE IN THE WORLD | up to ~ $750k",
+         "REMOTE ALMOST ANYWHERE IN THE WORLD"),
+        ("Spade | Engineer | ONSITE NYC or REMOTE (US/Can) | https://spade.com | Series B", "ONSITE NYC or REMOTE (US/Can)"),
+        ("Hedge (YC) | Engineer | San Francisco | ONSITE | 150K-250K + 1-3% equity | No visa sponsorship",
+         "San Francisco | ONSITE"),
+        # a place sharing a segment with terms keeps the place
+        ("New Lantern | https://newlantern.ai | Full time in San Francisco, CA (ONSITE)",
+         "in San Francisco, CA (ONSITE)"),
+        ("Acme | Engineer | Full Time, Remote India", "Remote India"),
+        ("Acme | Full-time | INTERNS , HYBRID/REMOTE, Zurich, Switzerland | VISA possible",
+         "HYBRID/REMOTE, Zurich, Switzerland"),
+    ],
+)
+def test_hn_location_leaves_out_pay_links_and_terms(first_line, location):
+    assert hn._summary({"id": 1, "text": first_line}, "2026-10-01T15:00:00Z").location == location
+
+
 def test_remoteok_skips_legal_notice():
     data = [{"legal": "terms"}, {"id": 1, "position": "Dev", "company": "X", "url": "https://remoteok.com/remote-jobs/1",
                                  "salary_min": 0, "salary_max": 0, "epoch": 1_790_000_000}]

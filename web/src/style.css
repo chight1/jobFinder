@@ -15,7 +15,6 @@
   --line: #75706b;     /* tile and control edges */
   --line-soft: #35312e; /* rules inside tables and tiles */
   --accent: #8fb4e3;
-  --top: #1a2333;
   --flag: #e8908c;
   --unicorn: #b7a6e6;
   --check: #dcb35e;
@@ -110,7 +109,6 @@ section h3 { font-size: var(--body); margin: 12px 0 4px; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
-.job.top { background: var(--top); }  /* All open's 20 best by score */
 .job .body { min-width: 0; }
 .job p { margin: 4px 0; }
 
@@ -184,6 +182,7 @@ section h3 { font-size: var(--body); margin: 12px 0 4px; }
 .chip {
   padding: 0 8px;
   font-size: var(--small);
+  font-weight: 600;
   line-height: 18px;
   border: 2px solid transparent;
   border-radius: var(--radius);

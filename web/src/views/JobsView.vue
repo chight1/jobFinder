@@ -12,10 +12,9 @@ const props = defineProps<{ view: ListView; skill?: string; japanese?: boolean }
 
 // What each list shows. `holds` are the statuses its jobs can have: a job given another status leaves
 // the list. A `live` list adds jobs as the model finishes them, without a reload.
-// `top` tints that many of the best jobs, so the head of a long list stands out.
-const VIEWS: Record<ListView, { title: string; empty: string; holds: Status[]; live?: boolean; top?: number }> = {
+const VIEWS: Record<ListView, { title: string; empty: string; holds: Status[]; live?: boolean }> = {
   new: { title: "New", empty: "Nothing new.", holds: ["none"], live: true },
-  all: { title: "All open", empty: "Nothing here.", holds: ["none"], live: true, top: 20 },
+  all: { title: "All open", empty: "Nothing here.", holds: ["none"], live: true },
   japanese: { title: "Japanese", empty: "No Japanese jobs yet.", holds: ["none"] },
   applied: { title: "Applied", empty: "Nothing applied for yet.", holds: APPLIED_STATUSES },
   not_interested: { title: "Not interested", empty: "Nothing marked not interested.", holds: ["not_interested"] },
@@ -102,13 +101,7 @@ async function markSeen() {
   <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
   <template v-else-if="list">
     <p v-if="!list.jobs.length" class="empty">{{ config.empty }}</p>
-    <JobTile
-      v-for="(job, i) in list.jobs"
-      :key="job.id"
-      :job="job"
-      :top="i < (config.top ?? 0)"
-      :fresh="fresh.has(job.id)"
-    >
+    <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)">
       <p v-if="job.status !== 'none'" class="status-line">
         <strong>{{ statusName(job.status) }}</strong> since {{ job.status_at?.slice(0, 10) }}
         <template v-if="job.follow_up_on">

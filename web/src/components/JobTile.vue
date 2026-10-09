@@ -9,7 +9,7 @@ import { RATINGS, type Rating } from "../jobs";
 // the score in its box; title, then company and pay; one line of facts (where, language and your
 // level in it, years asked); the skills; the page's own actions (the slot); then where it was seen
 // and a link to the details. The rating dots save at once.
-const props = defineProps<{ job: JobCard; top?: boolean; fresh?: boolean }>();
+const props = defineProps<{ job: JobCard; fresh?: boolean }>();
 const rating = ref(props.job.rating);
 watch(
   () => props.job.rating,
@@ -41,7 +41,7 @@ const levelTitle = computed(() =>
 </script>
 
 <template>
-  <article class="job" :class="{ top, fresh }" :data-rating="rating ?? ''">
+  <article class="job" :class="{ fresh }" :data-rating="rating ?? ''">
     <div class="score" title="score"><span class="sr-only">Score </span>{{ Math.round(job.score ?? 0) }}</div>
     <div class="body">
       <header class="job-head">

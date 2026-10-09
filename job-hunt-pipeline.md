@@ -308,7 +308,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | View | Shows |
 | --- | --- |
 | New | jobs first seen since the last visit, by score |
-| All open | every kept, open job, by score; the top 20 tinted blue |
+| All open | every kept, open job, by score |
 | Japanese | open jobs that pass every rule but require Japanese, by score |
 | Removed | removed jobs, filterable by rule, each with its quote and a restore button |
 | Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
