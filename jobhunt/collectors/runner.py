@@ -2,9 +2,8 @@
 
 For each posting a collector returns: a known one is touched; a new one is matched
 against existing jobs (dedupe levels 1 and 2), run through the code rules, given its
-detail fetch if needed, compared with the company's open jobs (level 3), and stored as
-a new job in the removed pile or the model queue. Whole-list sources also close
-sightings that went missing twice.
+detail fetch if needed, compared with the company's recently seen jobs (level 3), and stored as
+a new job in the removed pile or the model queue.
 """
 
 from __future__ import annotations
@@ -38,7 +37,6 @@ log = logging.getLogger(__name__)
 # What happened to one posting: already stored, added to a known job, removed by code, or queued.
 Outcome = Literal["touched", "attached", "removed", "queued"]
 
-MISSES_TO_CLOSE = 2
 REPOST_WINDOW = timedelta(days=30)
 DEAD_MONTHS_TO_DROP = 3
 _KIND_RANK = {"employer": 0, "japan_board": 1, "global_board": 2, "agent": 3}
@@ -51,12 +49,11 @@ class Tally:
     new_sightings: int = 0
     new_jobs: int = 0
     code_removed: int = 0
-    closed: int = 0
     errors: int = 0
     status: str = "ok"
 
     def add(self, other: Tally) -> None:
-        for name in ("parsed", "new_sightings", "new_jobs", "code_removed", "closed", "errors"):
+        for name in ("parsed", "new_sightings", "new_jobs", "code_removed", "errors"):
             setattr(self, name, getattr(self, name) + getattr(other, name))
         if other.status != "ok":
             self.status = other.status
@@ -191,8 +188,6 @@ class Runner:
                 tally.new_jobs += 1
             if outcome == "removed":
                 tally.code_removed += 1
-        if listing.whole_list:
-            tally.closed += self._count_misses(source["id"], board_id, listing.seen_ids)
         self.unfinished = None
         return tally
 
@@ -202,7 +197,7 @@ class Runner:
         summary = replace(summary, location=self._place(ctx, summary))
         url = canonical_url(summary.url)
         existing = self.conn.execute(
-            "SELECT id, job_id, closed_at FROM sightings "
+            "SELECT id FROM sightings "
             "WHERE url = ? OR (source_id = ? AND board_id IS ? AND external_id = ?)",
             (url, source["id"], board_id, summary.external_id),
         ).fetchone()
@@ -250,7 +245,7 @@ class Runner:
                 self._pair(match[0], job_id, None, match[1], "probably_same", "minhash")
         else:
             borderline: list[tuple[int, float, float]] = []
-            for other in self._open_jobs_at(key.company):
+            for other in self._recent_jobs_at(key.company):
                 verdict, title_sim, desc_sim = fuzzy_verdict(key.title, text, other["title_norm"],
                                                              to_text(other["description"]))
                 if verdict == "merge":
@@ -291,23 +286,29 @@ class Runner:
             city_norm(summary.location, self.s.gaz),
         )
 
+    # Both dedupe lookups match only jobs seen within the repost window. One not seen for longer is an
+    # old posting, so the same position now is a new opening: a fresh job, without the old one's status.
+    _SEEN_RECENTLY = "EXISTS (SELECT 1 FROM sightings seen WHERE seen.job_id = j.id AND seen.last_seen_at >= ?)"
+
+    @staticmethod
+    def _repost_cutoff() -> str:
+        return (datetime.now(UTC) - REPOST_WINDOW).isoformat(timespec="seconds")
+
     def _job_by_key(self, key: _Key) -> sqlite3.Row | None:
-        """An open job with this key, or one closed recently enough to count as a repost."""
         if is_agency(key.company, self.s.agencies):
             return None  # agency posts hide the employer and are never merged
-        since = (datetime.now(UTC) - REPOST_WINDOW).isoformat(timespec="seconds")
         return self.conn.execute(
-            "SELECT * FROM jobs WHERE company_norm = ? AND title_norm = ? AND city_norm = ? "
-            "AND (closed_at IS NULL OR closed_at >= ?) ORDER BY closed_at IS NOT NULL, id DESC LIMIT 1",
-            (key.company, key.title, key.city, since),
+            f"SELECT * FROM jobs j WHERE company_norm = ? AND title_norm = ? AND city_norm = ? "
+            f"AND {self._SEEN_RECENTLY} ORDER BY id DESC LIMIT 1",
+            (key.company, key.title, key.city, self._repost_cutoff()),
         ).fetchone()
 
-    def _open_jobs_at(self, company: str) -> list[sqlite3.Row]:
+    def _recent_jobs_at(self, company: str) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT j.id, j.title_norm, s.description FROM jobs j "
             "JOIN sightings s ON s.id = j.primary_sighting_id "
-            "WHERE j.company_norm = ? AND j.closed_at IS NULL AND j.stage NOT IN ('code_removed', 'removed')",
-            (company,),
+            f"WHERE j.company_norm = ? AND j.stage NOT IN ('code_removed', 'removed') AND {self._SEEN_RECENTLY}",
+            (company, self._repost_cutoff()),
         ).fetchall()
 
     # --- writes ---------------------------------------------------------------------------
@@ -363,10 +364,9 @@ class Runner:
     def _attach(
         self, job: sqlite3.Row, summary: Summary, url: str, source: sqlite3.Row, board_id: int | None
     ) -> None:
-        """Add a sighting to an existing job, reopening a repost and moving the primary link if better."""
+        """Add a sighting to an existing job, moving the primary link if the new one is better."""
         with db.transaction(self.conn):
             sighting_id = self._insert_sighting(summary, url, source["id"], board_id, job["id"])
-            self.conn.execute("UPDATE jobs SET closed_at = NULL WHERE id = ? AND closed_at IS NOT NULL", (job["id"],))
             current = self.conn.execute(
                 "SELECT s.source_id, s.company_raw FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id "
                 "WHERE j.id = ?",
@@ -392,36 +392,7 @@ class Runner:
         )
 
     def _touch(self, sighting: sqlite3.Row) -> None:
-        now = db.utc_now()
-        with db.transaction(self.conn):
-            self.conn.execute(
-                "UPDATE sightings SET last_seen_at = ?, miss_streak = 0, closed_at = NULL WHERE id = ?",
-                (now, sighting["id"]),
-            )
-            if sighting["closed_at"] and sighting["job_id"]:
-                self.conn.execute("UPDATE jobs SET closed_at = NULL WHERE id = ?", (sighting["job_id"],))
-
-    def _count_misses(self, source_id: str, board_id: int | None, seen: set[str]) -> int:
-        """Open sightings missing from a whole list get a miss; the second miss in a row closes them."""
-        closed = 0
-        now = db.utc_now()
-        rows = self.conn.execute(
-            "SELECT id, external_id, job_id, miss_streak FROM sightings "
-            "WHERE source_id = ? AND board_id IS ? AND closed_at IS NULL",
-            (source_id, board_id),
-        ).fetchall()
-        with db.transaction(self.conn):
-            for row in rows:
-                if row["external_id"] in seen:
-                    continue
-                streak = row["miss_streak"] + 1
-                self.conn.execute(
-                    "UPDATE sightings SET miss_streak = ?, closed_at = ? WHERE id = ?",
-                    (streak, now if streak >= MISSES_TO_CLOSE else None, row["id"]),
-                )
-                if streak >= MISSES_TO_CLOSE and close_job_if_unseen(self.conn, row["job_id"], now):
-                    closed += 1
-        return closed
+        self.conn.execute("UPDATE sightings SET last_seen_at = ? WHERE id = ?", (db.utc_now(), sighting["id"]))
 
     def _mark_board(self, board: sqlite3.Row, *, job_count: int | None, cursor: dict | None = None) -> None:
         """Move the board between tiers: active (has jobs), cold (no jobs), dead (404)."""
@@ -447,19 +418,6 @@ class Runner:
         finish = getattr(collector, "finish", None)
         if finish:
             finish()
-
-
-def close_job_if_unseen(conn: sqlite3.Connection, job_id: int | None, now: str) -> bool:
-    """Close a job once none of its sightings is open."""
-    if job_id is None:
-        return False
-    still_open = conn.execute(
-        "SELECT 1 FROM sightings WHERE job_id = ? AND closed_at IS NULL LIMIT 1", (job_id,)
-    ).fetchone()
-    if still_open:
-        return False
-    conn.execute("UPDATE jobs SET closed_at = ? WHERE id = ? AND closed_at IS NULL", (now, job_id))
-    return True
 
 
 # --- source health after a run ---------------------------------------------------------------

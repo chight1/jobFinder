@@ -1,7 +1,7 @@
 """Merging sightings into jobs, so the model never reads the same position twice.
 
 Level 1 is the canonical link, level 2 an exact company + title + city key,
-level 3 a fuzzy comparison against open jobs at the same company.
+level 3 a fuzzy comparison against recently seen jobs at the same company.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def _minhash(text: str) -> MinHash:
 
 
 class AgencyIndex:
-    """Finds open jobs whose description is at least 0.8 similar to an agency post.
+    """Finds jobs whose description is at least 0.8 similar to an agency post.
 
     Built on first use from every open job's description, then kept current as jobs
     are added during the run. Shared by the fetch threads, so access is locked.
@@ -198,7 +198,5 @@ def merge_jobs(conn: sqlite3.Connection, keep: int, drop: int) -> None:
                 "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = ? WHERE id = ? AND status = 'none'",
                 (dropped["status"], dropped["status_at"], dropped["follow_up_on"], keep),
             )
-        conn.execute("UPDATE jobs SET closed_at = NULL WHERE id = ? AND EXISTS "
-                     "(SELECT 1 FROM sightings WHERE job_id = ? AND closed_at IS NULL)", (keep, keep))
         conn.execute("DELETE FROM packets WHERE job_id = ?", (drop,))
         conn.execute("DELETE FROM jobs WHERE id = ?", (drop,))  # dupe_pairs rows go with it

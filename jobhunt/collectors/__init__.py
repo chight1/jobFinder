@@ -44,7 +44,6 @@ class Listing:
     summaries: list[Summary]
     seen_ids: set[str]  # every id present on the source this time
     cursor: dict[str, Any] | None = None  # where to resume next run; None starts over
-    whole_list: bool = False  # seen_ids covers the source's whole list, so missing ids count as misses
 
 
 @dataclass

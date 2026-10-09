@@ -208,6 +208,13 @@ MIGRATIONS: list[str] = [
                           WHERE value != 'Requires Japanese')
     WHERE EXISTS (SELECT 1 FROM json_each(restored_rules) WHERE value = 'Requires Japanese');
     """,
+    """
+    -- No more closed postings: most sources show only their newest jobs, so a job missing from a list
+    -- says nothing about whether it is still up. A dead posting is found by opening it.
+    ALTER TABLE jobs DROP COLUMN closed_at;
+    ALTER TABLE sightings DROP COLUMN closed_at;
+    ALTER TABLE sightings DROP COLUMN miss_streak;
+    """,
 ]
 
 

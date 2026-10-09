@@ -28,9 +28,7 @@ def list_postings(ctx: Context, cursor: dict | None) -> Listing:
         summaries += [_summary(item, company_id) for item in content]
         offset += len(content)
         if not content or offset >= data.get("totalFound", 0):
-            # Started from the top and reached the end: the list is whole.
-            whole = not cursor
-            return Listing(summaries, {s.external_id for s in summaries}, whole_list=whole)
+            return Listing(summaries, {s.external_id for s in summaries})
         if ctx.out_of_time():
             return Listing(summaries, {s.external_id for s in summaries}, cursor={"offset": offset})
 

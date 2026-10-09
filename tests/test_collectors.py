@@ -57,7 +57,7 @@ def test_greenhouse_list_and_detail():
     })
     ctx = ctx_for(fetcher, board={"slug": "acme"})
     listing = greenhouse.list_postings(ctx, None)
-    assert listing.whole_list and listing.seen_ids == {"7"}
+    assert listing.seen_ids == {"7"}
     summary = listing.summaries[0]
     assert (summary.title, summary.company, summary.location) == ("Backend Engineer", "Acme", "Tokyo")
     assert greenhouse.fetch_detail(ctx, summary).description == "<h2>Requirements</h2><p>Go</p>"
@@ -111,7 +111,7 @@ def test_workday_reads_total_from_first_page_only():
     })
     config = {"host": "acme.wd1.myworkdayjobs.com", "tenant": "acme", "site": "External"}
     listing = workday.list_postings(ctx_for(fetcher, config=config, board={"slug": "acme"}), None)
-    assert len(listing.summaries) == 25 and listing.whole_list
+    assert len(listing.summaries) == 25
     assert listing.summaries[0].url == "https://acme.wd1.myworkdayjobs.com/External/job/Tokyo/Job-0_R0"
     assert listing.summaries[0].posted_at is not None
 

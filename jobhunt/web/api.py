@@ -136,7 +136,6 @@ class SightingRow(BaseModel):
     location: str
     first_seen_at: str
     last_seen_at: str
-    closed_at: str | None
     primary: bool = Field(description="The sighting whose link and text the job shows")
 
 
@@ -165,7 +164,6 @@ class JobDetail(BaseModel):
     location: str
     badges: list[str]
     stage: str
-    closed_at: str | None
     removal_rule: str | None
     removal_quote: str | None
     restored_rules: list[str] = Field(description="Removal rules this job was restored from; they never remove it again")
@@ -215,7 +213,6 @@ class RunTotals(BaseModel):
     extracted: int = 0
     removed_after_extraction: int = 0
     failed: int = 0
-    closed: int = 0
 
 
 class BackupState(BaseModel):
@@ -497,7 +494,6 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             location=primary["location_raw"] if primary else "",
             badges=detail["badges"],
             stage=job["stage"],
-            closed_at=job["closed_at"],
             removal_rule=job["removal_rule"],
             removal_quote=job["removal_quote"],
             restored_rules=detail["restored_rules"],
@@ -517,7 +513,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             sightings=[
                 SightingRow(id=s["id"], source=s["source_name"], url=s["url"], title=s["title"],
                             company=s["company_raw"], location=s["location_raw"], first_seen_at=s["first_seen_at"],
-                            last_seen_at=s["last_seen_at"], closed_at=s["closed_at"],
+                            last_seen_at=s["last_seen_at"],
                             primary=bool(primary) and s["id"] == primary["id"])
                 for s in detail["sightings"]
             ],
@@ -666,7 +662,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
 
     @api.get("/skills")
     def skills(conn: Conn, scope: Literal["kept", "all"] = "kept", japanese: bool = False) -> SkillsPage:
-        """Every skill the jobs name, most common first. scope "kept" counts the open jobs still in play,
+        """Every skill the jobs name, most common first. scope "kept" counts the jobs still in play,
         "all" every job the model has read; jobs that require Japanese count only with japanese=true."""
         reload_skills(cfg)  # pick up hand edits to profile.toml too
         stats = inspect.skill_stats(conn, cfg.profile, scope, japanese=japanese)

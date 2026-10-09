@@ -34,7 +34,7 @@ def list_postings(ctx: Context, cursor: dict | None) -> Listing:
         summaries += [_summary(ctx, p) for p in postings if p.get("externalPath")]
         offset += len(postings)
         if not postings or offset >= total:
-            return Listing(summaries, {s.external_id for s in summaries}, whole_list=not cursor)
+            return Listing(summaries, {s.external_id for s in summaries})
         if ctx.out_of_time():
             return Listing(summaries, {s.external_id for s in summaries}, cursor={"offset": offset, "total": total})
 

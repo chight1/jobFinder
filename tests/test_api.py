@@ -26,10 +26,7 @@ def test_a_plain_table_is_the_open_list(client, conn):
     assert [j["title"] for j in reply["jobs"]] == ["Backend Engineer"] and reply["total"] == 1
     on = {f["key"]: [o["key"] for o in f["options"] if o["on"]] for f in reply["filters"]}
     assert on == {"rating": ["green", "yellow", "red", "grey"], "japanese": ["not_japanese"], "status": ["none"],
-                  "removed": ["kept"], "posting": ["open"]}
-
-    conn.execute("UPDATE jobs SET closed_at = '2026-10-01' WHERE id = 1")
-    assert titles(client) == [] and titles(client, posting=["open", "closed"]) == ["Backend Engineer"]
+                  "removed": ["kept"]}
 
 
 def test_options_within_a_filter_add_up_and_filters_narrow(client, conn):

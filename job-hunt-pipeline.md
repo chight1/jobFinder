@@ -54,8 +54,8 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | --- | --- | --- |
 | sources | id (slug), name, collector, config (JSON), enabled, min_delay_s, daily_cap, backoff_until, fail_streak, cursor, last_run_at, last_status | One row per source from sources.csv |
 | companies | id, ats, slug, extra (JSON: Workday host, tenant, site), found_via, tier, last_checked_at, last_job_count, dead_streak | One row per company board on a hiring system |
-| sightings | id, source_id, external_id, url (canonical, unique), title, company_raw, location_raw, posted_at, description, desc_hash, source_fields (JSON), first_seen_at, last_seen_at, miss_streak, closed_at, job_id | One row per place a posting was seen |
-| jobs | id, company_norm, title_norm, city_norm, primary_sighting_id, stage, removal_rule, removal_quote, prescore, facts (JSON), prompt_version, score, score_parts (JSON), reason_line, badges, status, status_at, follow_up_on, first_seen_at, closed_at | One row per real position |
+| sightings | id, source_id, external_id, url (canonical, unique), title, company_raw, location_raw, posted_at, description, desc_hash, source_fields (JSON), first_seen_at, last_seen_at, job_id | One row per place a posting was seen |
+| jobs | id, company_norm, title_norm, city_norm, primary_sighting_id, stage, removal_rule, removal_quote, prescore, facts (JSON), prompt_version, score, score_parts (JSON), reason_line, badges, status, status_at, follow_up_on, first_seen_at, japanese_override | One row per real position |
 | dupe_pairs | job_a, job_b, title_sim, desc_sim, verdict, decided_by | Borderline duplicates waiting for the model |
 | company_aliases | alias_norm, company_norm | Hand-kept company name aliases |
 | fetch_log | source_id, url, status, bytes, ms, at, error | Every request, for politeness and health |
@@ -63,7 +63,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
 | settings | key, value | Last list visit, current crawl id |
 
-**Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A button at the end of each card's buttons moves a job to the other list by hand ("Japanese" on a main-list job, "Not Japanese" on a Japanese one) (japanese_override), which wins over the model's answer and survives a rescore. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
+**Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A button at the end of each card's buttons moves a job to the other list by hand ("Japanese" on a main-list job, "Not Japanese" on a Japanese one) (japanese_override), which wins over the model's answer and survives a rescore. A failed extraction is extract_failed and stays visible.
 
 **Job status** is the candidate's: none, apply, applied, interviewing, rejected, ghosted, not_interested.
 
@@ -80,7 +80,6 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 3. Run the code rules on each new sighting. Survivors without a description get one detail fetch.
 4. Dedupe levels 1 and 2: attach to an existing job or create a new one.
 5. New jobs that pass the code rules enter the model queue with their prescore.
-6. Once a week: liveness checks on open kept jobs.
 
 **Model worker, 01:00 to 07:30.** It starts no new call after 07:30 and always takes the highest-priority work first:
 
@@ -88,7 +87,7 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 2. Borderline duplicate pairs
 3. Extraction of queued jobs, highest prescore first
 
-**At 07:30:** removal rules on the night's new facts, formula scoring, closed-job marking, and the run summary. The list page shows the result when the candidate opens it.
+**At 07:30:** removal rules on the night's new facts, formula scoring, and the run summary. The list page shows the result when the candidate opens it.
 
 **The first night is bigger.** Everything open is new, so the first pull and the first extraction backlog spread over several nights, each continuing where the last stopped.
 
@@ -126,26 +125,26 @@ Every collector has the same two calls and never touches the database. A runner 
 - **list_postings(source, cursor)** returns summaries (external id, link, title, company, location, posted date, and the description when the list carries it), the ids it saw, and the next cursor.
 - **fetch_detail(summary)** returns the full description. The runner calls it only for new postings that passed the code rules and arrived without a description.
 
-The runner compares the returned ids with the database: new ids become sightings, known ids get last_seen_at, and for whole-list sources, known ids that were missing get miss_streak + 1.
+The runner compares the returned ids with the database: new ids become sightings and known ids get last_seen_at.
 
-| Collector | Request | Paging | Detail fetch | Closed when |
-| --- | --- | --- | --- | --- |
-| Greenhouse | GET boards-api.greenhouse.io/v1/boards/SLUG/jobs | none: whole board | GET …/jobs/ID for new jobs | missing 2 checks in a row |
-| Lever | GET api.lever.co/v0/postings/SLUG?mode=json | none | none: the list is complete | missing 2 checks in a row |
-| Ashby | GET api.ashbyhq.com/posting-api/job-board/SLUG?includeCompensation=true | none | none | missing 2 checks in a row |
-| Workable | GET apply.workable.com/api/v1/widget/accounts/SLUG?details=true | none | none | missing 2 checks in a row |
-| SmartRecruiters | GET api.smartrecruiters.com/v1/companies/ID/postings?limit=100&offset=N | offset | GET …/postings/POSTING_ID | missing 2 checks in a row |
-| Workday | POST HOST/wday/cxs/TENANT/SITE/jobs with limit 20, offset N, empty search text | offset | GET HOST/wday/cxs/TENANT/SITE plus the job's path | missing 2 checks in a row |
-| HRMOS, Talentio | GET the public job list page | page links | GET the job page | missing 2 checks in a row |
-| RSS feeds | GET the feed | none | when the feed's text is under 500 characters | liveness check |
-| JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, startup.jobs) | GET with the API's Japan, Asia or worldwide filter where it has one | the API's own paging, newest first | rarely | liveness check |
-| Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting | 60 days after the thread |
-| Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page | liveness check |
-| Browser sites (CareerCross, Wellfound) | Playwright loads list pages | until no new ids | the job page | liveness check |
+**No closed postings.** A job missing from a list is not taken as gone: most sources show only their newest jobs, so absence says nothing. Jobs are never marked closed; a dead posting is found by opening it, and marked not interested.
+
+| Collector | Request | Paging | Detail fetch |
+| --- | --- | --- | --- |
+| Greenhouse | GET boards-api.greenhouse.io/v1/boards/SLUG/jobs | none: whole board | GET …/jobs/ID for new jobs |
+| Lever | GET api.lever.co/v0/postings/SLUG?mode=json | none | none: the list is complete |
+| Ashby | GET api.ashbyhq.com/posting-api/job-board/SLUG?includeCompensation=true | none | none |
+| Workable | GET apply.workable.com/api/v1/widget/accounts/SLUG?details=true | none | none |
+| SmartRecruiters | GET api.smartrecruiters.com/v1/companies/ID/postings?limit=100&offset=N | offset | GET …/postings/POSTING_ID |
+| Workday | POST HOST/wday/cxs/TENANT/SITE/jobs with limit 20, offset N, empty search text | offset | GET HOST/wday/cxs/TENANT/SITE plus the job's path |
+| HRMOS, Talentio | GET the public job list page | page links | GET the job page |
+| RSS feeds | GET the feed | none | when the feed's text is under 500 characters |
+| JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, startup.jobs) | GET with the API's Japan, Asia or worldwide filter where it has one | the API's own paging, newest first | rarely |
+| Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting |
+| Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page |
+| Browser sites (CareerCross, Wellfound) | Playwright loads list pages | until no new ids | the job page |
 
 **Stop rule for newest-first lists:** stop at the first page where every id is already known.
-
-**Liveness check, weekly:** for open kept jobs from sources with no whole list, GET the posting link. A 404 or 410, a redirect to a generic jobs page, or text such as "no longer accepting applications" marks the job closed.
 
 ## Company discovery and board tiers
 
@@ -261,7 +260,7 @@ Deduping runs in code as each sighting arrives, so the model never reads the sam
 - title_norm: NFKC, lowercase, bracketed text and place names removed, "sr" to "senior", "jr" to "junior", spaces collapsed.
 - city_norm: the matched gazetteer city, or "remote".
 
-**Level 3: fuzzy, same company only.** Runs after the detail fetch, against open jobs with the same company_norm.
+**Level 3: fuzzy, same company only.** Runs after the detail fetch, against jobs with the same company_norm seen within the last 30 days.
 
 - Title similarity: shared title words divided by all title words (Jaccard similarity).
 - Description similarity: Jaccard similarity over 5-word shingles (every run of five consecutive words).
@@ -269,11 +268,11 @@ Deduping runs in code as each sighting arrives, so the model never reads the sam
 - Description between 0.5 and 0.8: a borderline pair. The model gets both trimmed postings and answers "same" or "different".
 - Below that: different jobs.
 
-**Agent posts that hide the company** (no company, or a name on the known-agency list) are never merged. MinHash, a fast estimate of description similarity, finds open jobs at 0.8 or above, and the post is linked to that job as "probably the same".
+**Agent posts that hide the company** (no company, or a name on the known-agency list) are never merged. MinHash, a fast estimate of description similarity, finds the company's jobs at 0.8 or above, and the post is linked to that job as "probably the same".
 
 **Primary link.** A job shows the link from its best sighting: the employer's hiring system first, then a Japan board, then a global board, then an agent.
 
-**Reposts.** A closed job whose key reappears within 30 days reopens with its old record and first-seen date.
+**Reposts.** Both lookups match only jobs seen within the last 30 days. A posting matching a job not seen for longer starts a new job, without the old one's status.
 
 ## Scoring
 
@@ -310,7 +309,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Jobs | every job in one table, best first (at most 500 at a time), narrowed by filters; see The jobs table |
 | Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
-| Skills | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| Skills | every skill the kept jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 | Packet (#id) | the application packet drafted for a job marked apply |
@@ -323,7 +322,6 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Japanese | Japanese, **not Japanese**: the model's answer, or the candidate's move by hand |
 | Status | **no status**, to apply, applied, interviewing, rejected, ghosted, not interested |
 | Removed | **kept**, then one option per removal rule |
-| Posting | **open**, closed |
 
 A plain /jobs is the open list. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 
@@ -362,7 +360,7 @@ The database and packets are backed up to a separate private repo, jobFinder-dat
 
 ## Health and errors
 
-Every request lands in fetch_log. Every run writes one runs row with its counts: fetched, new sightings, new jobs, removed by code, extracted, removed after extraction, failed, closed.
+Every request lands in fetch_log. Every run writes one runs row with its counts: fetched, new sightings, new jobs, removed by code, extracted, removed after extraction, failed.
 
 The Health view shows each source's last run, status, requests, new jobs, errors, backoff, and its 7-night average of new jobs. It flags:
 

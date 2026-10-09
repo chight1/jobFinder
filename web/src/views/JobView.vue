@@ -55,7 +55,7 @@ function factText(value: unknown): string {
       <h2>State</h2>
       <dl class="kv">
         <dt>Stage</dt>
-        <dd>{{ job.stage }}<template v-if="job.closed_at"> · closed {{ day(job.closed_at) }}</template></dd>
+        <dd>{{ job.stage }}</dd>
         <template v-if="job.removal_rule">
           <dt>Removed by</dt>
           <dd>
@@ -129,7 +129,6 @@ function factText(value: unknown): string {
           <thead>
             <tr>
               <th>Source</th><th>Title</th><th>Company</th><th>Location</th><th>First seen</th><th>Last seen</th>
-              <th>Closed</th>
             </tr>
           </thead>
           <tbody>
@@ -142,7 +141,6 @@ function factText(value: unknown): string {
               <td>{{ s.location }}</td>
               <td>{{ day(s.first_seen_at) }}</td>
               <td>{{ day(s.last_seen_at) }}</td>
-              <td>{{ day(s.closed_at) }}</td>
             </tr>
           </tbody>
         </table>

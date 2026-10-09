@@ -49,7 +49,7 @@ def test_sync_sources_splits_boards_from_sources(conn):
     assert db.loads(rakuten["extra"])["site"] == "RakutenInc"
 
 
-def test_new_jobs_removed_queued_then_closed(conn, cfg, gaz):
+def test_new_jobs_removed_or_queued(conn, cfg, gaz):
     responses = {
         BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo"), _job(2, "Backend Engineer", "London, UK")]},
         f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs in Go.&lt;/p&gt;"},
@@ -68,17 +68,31 @@ def test_new_jobs_removed_queued_then_closed(conn, cfg, gaz):
 
     assert _run(runner, conn).new_jobs == 0  # the same list again changes nothing
 
+    # A job missing from the list is not taken as gone: most lists show only the newest jobs.
     responses[BOARD_URL] = {"jobs": [_job(2, "Backend Engineer", "London, UK")]}
     _run(runner, conn)
-    assert conn.execute("SELECT miss_streak, closed_at FROM sightings WHERE external_id = '1'").fetchone()[0] == 1
-    assert _run(runner, conn).closed == 1
-    assert conn.execute(
-        "SELECT j.closed_at FROM jobs j JOIN sightings s ON s.job_id = j.id WHERE s.external_id = '1'"
-    ).fetchone()[0] is not None
+    assert conn.execute("SELECT stage FROM jobs WHERE id = 1").fetchone()[0] == "queued"
 
     board = conn.execute("SELECT tier, last_job_count FROM companies WHERE slug = 'acme'").fetchone()
     assert tuple(board) == ("active", 1)
 
+
+
+def test_a_repost_joins_its_job_only_while_recently_seen(conn, cfg, gaz):
+    responses = {
+        BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo")]},
+        f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs in Go.&lt;/p&gt;"},
+    }
+    runner = _setup(conn, cfg, gaz, responses)
+    _run(runner, conn)
+
+    responses[BOARD_URL] = {"jobs": [_job(3, "Backend Engineer", "Tokyo")]}  # same position, new id
+    assert _run(runner, conn).new_jobs == 0  # seen this month: the same job
+
+    conn.execute("UPDATE sightings SET last_seen_at = '2000-01-01T00:00:00+00:00'")
+    responses[BOARD_URL] = {"jobs": [_job(4, "Backend Engineer", "Tokyo")]}
+    responses[f"{BOARD_URL}/4"] = responses[f"{BOARD_URL}/1"]
+    assert _run(runner, conn).new_jobs == 1  # not seen for years: a new opening
 
 def test_a_long_list_of_places_is_stored_as_anywhere(conn, cfg, gaz):
     countries = "; ".join(["Tokyo, JP", "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR"])

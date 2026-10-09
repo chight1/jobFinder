@@ -9,7 +9,8 @@ Source config:
     page_param  query parameter for page 2, 3, ... (omit for a single page)
     page_url    or a template for page 2, 3, ... such as "https://example.com/jobs/{page}"
     max_pages   page limit per list URL (default 10)
-    whole_list  true when the list pages show every open job (company pages, HRMOS)
+    whole_list  true when the list pages show every open job in no set order (company pages,
+                HRMOS): every page is walked, not just up to the first page of known jobs
     selectors   CSS selectors for title, company, location, description when a job
                 page has no JobPosting data
 """
@@ -69,17 +70,14 @@ def list_from_pages(ctx: Context, config: dict[str, Any], load: Callable[[str], 
     max_pages = int(config.get("max_pages", DEFAULT_MAX_PAGES)) if paged else 1
 
     found: dict[str, Summary] = {}
-    complete = True
     for list_url in config["list_urls"]:
         for number in range(1, max_pages + 1):
             if ctx.out_of_time():
-                complete = False
                 break
             status, text, final_url = load(page_url(list_url, number, config))
             if not 200 <= status < 300:
                 if ctx.board and number == 1 and status in (404, 410):
                     raise BoardGone(ctx.board["slug"])
-                complete = number > 1  # a missing later page is the end of the list; a missing first page is not
                 break
             links: dict[str, Summary] = {}
             for external_id, summary in job_links(text, final_url, pattern):
@@ -93,8 +91,7 @@ def list_from_pages(ctx: Context, config: dict[str, Any], load: Callable[[str], 
             # Newest-first lists stop at the first page where every id is already known.
             if not whole and not (set(fresh) - ctx.known(fresh)):
                 break
-    # An empty result is never trusted as a whole list: a layout change would otherwise close every job.
-    return Listing(list(found.values()), set(found), whole_list=whole and complete and bool(found))
+    return Listing(list(found.values()), set(found))
 
 
 def fetch_detail(ctx: Context, summary: Summary) -> Summary:

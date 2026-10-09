@@ -61,8 +61,7 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
         Last run {{ minute(health.last_run.started_at) }}: {{ health.last_run.fetched }} requests,
         {{ health.last_run.new_sightings }} new sightings, {{ health.last_run.new_jobs }} new jobs,
         {{ health.last_run.removed_by_code }} removed by code, {{ health.last_run.extracted }} extracted,
-        {{ health.last_run.removed_after_extraction }} removed after extraction, {{ health.last_run.failed }} failed,
-        {{ health.last_run.closed }} closed.
+        {{ health.last_run.removed_after_extraction }} removed after extraction, {{ health.last_run.failed }} failed.
       </p>
       <p>
         Boards:

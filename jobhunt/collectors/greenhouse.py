@@ -27,7 +27,7 @@ def list_postings(ctx: Context, cursor: dict | None) -> Listing:
         )
         for job in page.json().get("jobs", [])
     ]
-    return Listing(summaries, {s.external_id for s in summaries}, whole_list=True)
+    return Listing(summaries, {s.external_id for s in summaries})
 
 
 def fetch_detail(ctx: Context, summary: Summary) -> Summary:

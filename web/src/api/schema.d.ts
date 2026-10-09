@@ -261,7 +261,7 @@ export interface paths {
         };
         /**
          * Skills
-         * @description Every skill the jobs name, most common first. scope "kept" counts the open jobs still in play,
+         * @description Every skill the jobs name, most common first. scope "kept" counts the jobs still in play,
          *     "all" every job the model has read; jobs that require Japanese count only with japanese=true.
          */
         get: operations["skills_skills_get"];
@@ -550,8 +550,6 @@ export interface components {
             badges: string[];
             /** Stage */
             stage: string;
-            /** Closed At */
-            closed_at: string | null;
             /** Removal Rule */
             removal_rule: string | null;
             /** Removal Quote */
@@ -786,11 +784,6 @@ export interface components {
              * @default 0
              */
             failed: number;
-            /**
-             * Closed
-             * @default 0
-             */
-            closed: number;
         };
         /** SightingRow */
         SightingRow: {
@@ -810,8 +803,6 @@ export interface components {
             first_seen_at: string;
             /** Last Seen At */
             last_seen_at: string;
-            /** Closed At */
-            closed_at: string | null;
             /**
              * Primary
              * @description The sighting whose link and text the job shows
@@ -1059,7 +1050,6 @@ export interface operations {
                 japanese?: string[] | null;
                 status?: string[] | null;
                 removed?: string[] | null;
-                posting?: string[] | null;
                 /** @description Only the jobs asking for this skill, under any spelling */
                 skill?: string | null;
                 /** @description An earlier reply's `now`: only the jobs listed since */

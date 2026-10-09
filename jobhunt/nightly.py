@@ -8,41 +8,29 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sqlite3
 import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Iterator
-from urllib.parse import urlsplit
 
 from jobhunt import collectors, db, packets, score
 from jobhunt.backup import backup
-from jobhunt.collectors.runner import Runner, Shared, Tally, close_job_if_unseen, record_outcome
+from jobhunt.collectors.runner import Runner, Shared, Tally, record_outcome
 from jobhunt.config import Config, reload_skills
 from jobhunt.dedupe import AgencyIndex, judge_pair, merge_jobs
-from jobhunt.fetch import DailyCapReached, Fetcher, FetchError, SourceBlocked
+from jobhunt.fetch import DailyCapReached, Fetcher, SourceBlocked
 from jobhunt.llm import EXTRACT_PROMPT_VERSION, LLM, InvalidOutput, LLMError, extract
 from jobhunt.rules import Gazetteer
 from jobhunt.text import to_text
 
 log = logging.getLogger(__name__)
 
-HN_OPEN_DAYS = 60
 PER_TENANT_HOSTS = frozenset({"workday"})  # each board has its own site, so a block is that board's alone
-LIVENESS_SOURCE = "liveness"  # its own fetch_log id, so checks never count against a source's daily cap
-_CLOSED_MARKERS = re.compile(
-    r"no longer accepting applications|no longer available|job (?:has )?expired|position has been filled|"
-    r"this job is closed|job not found",
-    re.IGNORECASE,
-)
-_LOGIN_PATH = re.compile(r"login|signin|sign-in|authwall", re.IGNORECASE)
-_GENERIC_PATH = re.compile(r"/(jobs?|careers?|search|positions|openings)/?$", re.IGNORECASE)
 
 
 def next_clock(after: datetime, hhmm: str) -> datetime:
@@ -69,8 +57,6 @@ def nightly(cfg: Config) -> dict[str, Any]:
     def fetch_worker() -> None:
         try:
             results["sources"] = collect(cfg, gaz, deadline=fetch_stop.timestamp(), run_started=started)
-            if started.weekday() == int(cfg.schedule["liveness_weekday"]):
-                results["liveness_closed"] = check_liveness(cfg, deadline=fetch_stop.timestamp(), run_started=started)
         except Exception:
             log.exception("fetch worker failed")
         finally:
@@ -227,74 +213,12 @@ def _open_job_texts(cfg: Config) -> Iterator[tuple[int, str]]:
     conn = db.connect(cfg.db_path)
     try:
         rows = conn.execute(
-            "SELECT j.id, s.description FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id "
-            "WHERE j.closed_at IS NULL"
+            "SELECT j.id, s.description FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id"
         ).fetchall()
     finally:
         conn.close()
     for row in rows:
         yield row["id"], to_text(row["description"])
-
-
-# --- weekly liveness check ---------------------------------------------------------------------
-
-
-def check_liveness(cfg: Config, *, deadline: float, run_started: datetime) -> int:
-    """GET each open kept or Japanese job's link on sources with no whole list; close the ones that are gone."""
-    conn = db.connect(cfg.db_path)
-    whole_list_sources = {
-        r["id"] for r in conn.execute("SELECT id, collector, config FROM sources")
-        if r["collector"] in collectors.BOARD_COLLECTORS or db.loads(r["config"], {}).get("whole_list")
-    } | {r["id"] for r in conn.execute("SELECT id FROM sources WHERE collector = 'hn'")}
-    rows = conn.execute(
-        "SELECT s.id, s.url, s.source_id, s.job_id FROM sightings s JOIN jobs j ON j.id = s.job_id "
-        "WHERE j.stage IN ('kept', 'japanese') AND j.closed_at IS NULL AND s.closed_at IS NULL"
-    ).fetchall()
-    conn.close()
-    by_source: dict[str, list[sqlite3.Row]] = defaultdict(list)
-    for row in rows:
-        if row["source_id"] not in whole_list_sources:
-            by_source[row["source_id"]].append(row)
-
-    fetcher = Fetcher(cfg, run_started=run_started)
-
-    def check(source_rows: list[sqlite3.Row]) -> int:
-        local = db.connect(cfg.db_path)
-        closed = 0
-        try:
-            for row in source_rows:
-                if time.time() >= deadline:
-                    break
-                try:
-                    page = fetcher.get(LIVENESS_SOURCE, row["url"])
-                except FetchError as exc:  # a block or any other error ends this site's checks
-                    log.warning("liveness checks on %s stopped at %s: %r", row["source_id"], row["url"], exc)
-                    break
-                if _looks_closed(row["url"], page.url, page.status, page.text):
-                    now = db.utc_now()
-                    with db.transaction(local):
-                        local.execute("UPDATE sightings SET closed_at = ? WHERE id = ?", (now, row["id"]))
-                        closed += close_job_if_unseen(local, row["job_id"], now)
-        finally:
-            local.close()
-        return closed
-
-    try:
-        with ThreadPoolExecutor(max_workers=int(cfg.fetch["parallel_sites"])) as pool:
-            return sum(pool.map(check, by_source.values()))
-    finally:
-        fetcher.close()
-
-
-def _looks_closed(requested: str, final: str, status: int, text: str) -> bool:
-    if status in (404, 410):
-        return True
-    final_path = urlsplit(final).path
-    if _LOGIN_PATH.search(final_path):
-        return False  # a login wall says nothing about the job
-    if final.rstrip("/") != requested.rstrip("/") and (final_path in ("", "/") or _GENERIC_PATH.search(final_path)):
-        return True  # redirected to a generic jobs page
-    return bool(_CLOSED_MARKERS.search(text))
 
 
 # --- model worker -----------------------------------------------------------------------------
@@ -393,7 +317,7 @@ def _next_task(conn: sqlite3.Connection, skipped: set[Task]) -> Task | None:
         if ("pair", (pair["job_a"], pair["job_b"])) not in skipped:
             return "pair", (pair["job_a"], pair["job_b"])
     job = conn.execute(
-        "SELECT id FROM jobs WHERE stage = 'queued' AND closed_at IS NULL ORDER BY prescore DESC, id LIMIT 1"
+        "SELECT id FROM jobs WHERE stage = 'queued' ORDER BY prescore DESC, id LIMIT 1"
     ).fetchone()
     if job:
         return "extract", job["id"]  # a failed extraction leaves the queue, so it is never offered twice
@@ -468,14 +392,13 @@ def _mark_extract_failed(conn: sqlite3.Connection, cfg: Config, gaz: Gazetteer, 
     counts["extract_failed"] += 1
 
 
-# --- 07:30: scoring, closing, the summary ------------------------------------------------------------
+# --- 07:30: scoring, the summary ------------------------------------------------------------
 
 
 def finalize(
     conn: sqlite3.Connection, cfg: Config, gaz: Gazetteer, run_id: int, started: datetime, results: dict[str, Any]
 ) -> dict[str, Any]:
     score.rescore_all(conn, cfg, gaz)
-    closed = close_old_hn(conn)
 
     sources: dict[str, dict[str, Any]] = results.get("sources", {})
     started_utc = started.astimezone(UTC).isoformat(timespec="seconds")
@@ -496,26 +419,9 @@ def finalize(
         "extracted": model.get("extracted", 0),
         "removed_after_extraction": model.get("removed", 0),
         "failed": model.get("extract_failed", 0),
-        "closed": sum(t["closed"] for t in sources.values()) + closed + results.get("liveness_closed", 0),
         "model": model,
         "sources": sources,
     }
     conn.execute("UPDATE runs SET ended_at = ?, counts = ? WHERE id = ?", (db.utc_now(), db.dumps(counts), run_id))
     return counts
 
-
-def close_old_hn(conn: sqlite3.Connection) -> int:
-    """Hacker News postings close 60 days after their thread."""
-    cutoff = (datetime.now(UTC) - timedelta(days=HN_OPEN_DAYS)).isoformat(timespec="seconds")
-    now = db.utc_now()
-    rows = conn.execute(
-        "SELECT s.id, s.job_id FROM sightings s JOIN sources src ON src.id = s.source_id "
-        "WHERE src.collector = 'hn' AND s.closed_at IS NULL AND s.posted_at < ?",
-        (cutoff,),
-    ).fetchall()
-    closed = 0
-    with db.transaction(conn):
-        for row in rows:
-            conn.execute("UPDATE sightings SET closed_at = ? WHERE id = ?", (now, row["id"]))
-            closed += close_job_if_unseen(conn, row["job_id"], now)
-    return closed

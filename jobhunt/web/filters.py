@@ -5,7 +5,7 @@ A filter is a set of on/off options, each with its own SQL condition on the job 
 filter when an option that is on matches it, and it shows when it passes every filter. The query string
 lists the options that are on, one parameter per option (?status=applied&status=interviewing; a lone
 empty value turns them all off). A filter the query leaves out uses its defaults, so a plain /jobs is
-the open list: kept, not Japanese, no status, posting still up.
+the open list: kept, not Japanese, no status.
 
 Adding a filter is one more entry in FILTERS. The API's query parameters and the page's filter bar
 are both built from it."""
@@ -79,10 +79,6 @@ FILTERS: tuple[Filter, ...] = (
         Option(key, label, "j.status = ?", (key,), default=key == "none") for key, label in STATUS_LABELS.items()
     )),
     Filter("removed", "Removed", _removal_options),
-    Filter("posting", "Posting", (
-        Option("open", "Open", "j.closed_at IS NULL"),
-        Option("closed", "Closed", "j.closed_at IS NOT NULL", default=False),
-    )),
 )
 
 # The query parameters, one list per filter: None when the query leaves the filter out.

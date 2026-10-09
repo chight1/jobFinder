@@ -97,7 +97,7 @@ def job_detail(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
 # Which jobs the Skills page counts: the ones still in play, or every job the model has read.
 # Either way, jobs that require Japanese (by the model, or moved there by hand) count only when asked for.
 SKILL_SCOPES = {
-    "kept": "stage IN ('kept', 'japanese') AND closed_at IS NULL",
+    "kept": "stage IN ('kept', 'japanese')",
     "all": "facts IS NOT NULL AND facts != '{}'",
 }
 _NOT_JAPANESE = "NOT COALESCE(japanese_override, json_extract(facts, '$.japanese') IS 'required')"
@@ -153,7 +153,7 @@ def unseen_skills(profile: Profile, stats: dict[str, Any]) -> list[tuple[str, in
 
 
 def distinct_skill_count(conn: sqlite3.Connection) -> int:
-    """How many different skills the open kept jobs name, for the Skills tab. Japanese jobs left out."""
+    """How many different skills the kept jobs name, for the Skills tab. Japanese jobs left out."""
     keys = set()
     for row in conn.execute(f"SELECT facts FROM jobs WHERE {_skill_jobs('kept', False)}"):
         keys |= {canonical_skill(s) for s in (db.loads(row["facts"], {}) or {}).get("stack") or [] if s.strip()}
@@ -188,7 +188,7 @@ def activity_snapshot(conn: sqlite3.Connection, log_path: Path) -> dict[str, Any
         running.append({"worker": row["worker"], "doing": row["doing"], "age": _duration(age), "stale": stale})
 
     hour_ago = (now - timedelta(hours=1)).isoformat(timespec="seconds")
-    queue = conn.execute("SELECT COUNT(*) FROM jobs WHERE stage = 'queued' AND closed_at IS NULL").fetchone()[0]
+    queue = conn.execute("SELECT COUNT(*) FROM jobs WHERE stage = 'queued'").fetchone()[0]
     per_job = conn.execute(
         "SELECT AVG(seconds) FROM (SELECT seconds FROM llm_log WHERE kind = 'extract' AND ok = 1 "
         "ORDER BY id DESC LIMIT 20)"
