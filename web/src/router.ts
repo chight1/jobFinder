@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import HealthView from "./views/HealthView.vue";
 import JobsView from "./views/JobsView.vue";
 import JobView from "./views/JobView.vue";
 import RemovedView from "./views/RemovedView.vue";
@@ -33,6 +34,7 @@ export const router = createRouter({
       meta: { title: "Job" },
     },
     { path: "/skills", component: SkillsView, meta: { title: "Skills" } },
+    { path: "/health", component: HealthView, meta: { title: "Health" } },
     {
       path: "/skills/:key",
       component: JobsView,

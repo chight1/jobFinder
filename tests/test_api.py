@@ -157,6 +157,30 @@ def test_skill_level_edits_profile_toml_in_place(client, cfg):
     assert "javascript = 2  # keep this comment" in text and "python" not in text
 
 
+# --- health ---
+
+
+def source(client, source_id: str) -> dict:
+    return next(s for s in client.get("/api/health").json()["sources"] if s["id"] == source_id)
+
+
+def test_health_shows_each_source_and_turns_one_back_on(client, conn):
+    conn.execute("UPDATE sources SET fail_streak = 99, last_tally = ? WHERE id = 'tokyodev'",
+                 (json.dumps({"requests": 3, "parsed": 2, "new_jobs": 1, "errors": 0}),))
+    tokyodev = source(client, "tokyodev")
+    assert (tokyodev["requests"], tokyodev["parsed"], tokyodev["new_jobs"]) == (3, 2, 1)
+    assert tokyodev["flags"] == ["disabled"] and tokyodev["average"] is None  # no nightly runs yet
+
+    assert client.post("/api/sources/tokyodev/enable").status_code == 204
+    assert source(client, "tokyodev")["flags"] == []
+    assert client.post("/api/sources/nowhere/enable").status_code == 404
+
+
+def test_health_model_and_backup(client):
+    health = client.get("/api/health").json()
+    assert health["queue"] == 0 and health["last_run"] is None and health["backup"]["at"] is None
+
+
 # --- the rest ---
 
 

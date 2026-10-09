@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from jobhunt import db, profile_file, rules, score
+from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
 from jobhunt.config import Config, reload_skills
@@ -195,6 +196,52 @@ class JobDetail(BaseModel):
     description: str
 
 
+class SourceHealth(BaseModel):
+    id: str
+    name: str
+    enabled: bool
+    last_run_at: str | None
+    last_status: str | None
+    requests: int = Field(description="From the source's latest run, nightly or by hand")
+    parsed: int
+    new_jobs: int
+    errors: int
+    average: float | None = Field(description="New jobs per night over the last 7 nightly runs; null before any")
+    backoff_until: str | None
+    min_delay_s: float | None = Field(description="This source's own gap between requests, when it has one")
+    fail_streak: int
+    flags: list[str] = Field(description="disabled, blocked or parser broken")
+
+
+class RunTotals(BaseModel):
+    started_at: str
+    fetched: int = 0
+    new_sightings: int = 0
+    new_jobs: int = 0
+    removed_by_code: int = 0
+    extracted: int = 0
+    removed_after_extraction: int = 0
+    failed: int = 0
+    closed: int = 0
+
+
+class BackupState(BaseModel):
+    at: str | None = Field(description="When the last backup ran (UTC); null before the first")
+    status: str | None = Field(description="Its result; starts with 'failed' when it failed")
+    folder: str = Field(description="The data repository it commits to")
+
+
+class Health(BaseModel):
+    seconds_per_job: float | None = Field(description="Average over the last 200 extractions")
+    queue: int
+    nights: float | None = Field(description="Nights the queue takes at that speed")
+    model_flags: list[str] = Field(description="extraction failing, model behind")
+    last_run: RunTotals | None
+    boards: dict[str, int] = Field(description="Company boards per tier")
+    backup: BackupState
+    sources: list[SourceHealth]
+
+
 class StatusChange(BaseModel):
     status: Status
 
@@ -238,6 +285,68 @@ def tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
         "Not interested": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['not_interested']}"),
         "Skills": inspect.distinct_skill_count(conn),
     }
+
+
+def health_report(conn: sqlite3.Connection, cfg: Config) -> Health:
+    runs = [dict(r) | {"counts": db.loads(r["counts"], {})} for r in
+            conn.execute("SELECT * FROM runs WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT 7")]
+    last = runs[0]["counts"] if runs else {}
+    disable_after = int(cfg.fetch["disable_after_fails"])
+
+    sources = []
+    for src in conn.execute("SELECT * FROM sources WHERE collector NOT IN ('manual') ORDER BY name COLLATE NOCASE"):
+        tally = db.loads(src["last_tally"], {})  # its latest run, nightly or by hand
+        nightly_new = [r["counts"].get("sources", {}).get(src["id"], {}).get("new_jobs", 0) for r in runs]
+        average = sum(nightly_new) / len(nightly_new) if nightly_new else None
+        flags = []
+        if src["fail_streak"] >= disable_after:
+            flags.append("disabled")
+        elif src["fail_streak"] > 0:
+            flags.append("blocked")
+        if tally.get("requests", 0) > 0 and tally.get("parsed", 0) == 0 and (average or 0) >= 5:
+            flags.append("parser broken")
+        sources.append(SourceHealth(
+            id=src["id"], name=src["name"], enabled=bool(src["enabled"]), last_run_at=src["last_run_at"],
+            last_status=src["last_status"], requests=tally.get("requests", 0), parsed=tally.get("parsed", 0),
+            new_jobs=tally.get("new_jobs", 0), errors=tally.get("errors", 0), average=average,
+            backoff_until=src["backoff_until"], min_delay_s=src["min_delay_s"] or None,
+            fail_streak=src["fail_streak"], flags=flags,
+        ))
+
+    seconds = conn.execute(
+        "SELECT AVG(seconds) FROM (SELECT seconds FROM llm_log WHERE kind = 'extract' AND ok = 1 "
+        "ORDER BY id DESC LIMIT 200)"
+    ).fetchone()[0]
+    queue = conn.execute("SELECT COUNT(*) FROM jobs WHERE stage = 'queued'").fetchone()[0]
+    start = datetime.strptime(cfg.schedule["start"], "%H:%M")
+    stop = datetime.strptime(cfg.schedule["model_stop"], "%H:%M")
+    window_s = (stop - start).total_seconds() % 86400
+    per_night = window_s / seconds if seconds else None
+    nights = queue / per_night if per_night else None
+
+    extracted, failed = last.get("extracted", 0), last.get("failed", 0)
+    model_flags = []
+    if extracted + failed and failed / (extracted + failed) > 0.10:
+        model_flags.append("extraction failing")
+    if nights is not None and nights > 3:
+        model_flags.append("model behind")
+
+    totals = {k: v for k, v in last.items() if k in RunTotals.model_fields and isinstance(v, int)}
+    return Health(
+        seconds_per_job=seconds,
+        queue=queue,
+        nights=nights,
+        model_flags=model_flags,
+        last_run=RunTotals(started_at=runs[0]["started_at"], **totals) if runs else None,
+        boards={r["tier"]: r["n"] for r in conn.execute("SELECT tier, COUNT(*) AS n FROM companies GROUP BY tier")},
+        backup=_backup_state(conn, cfg),
+        sources=sources,
+    )
+
+
+def _backup_state(conn: sqlite3.Connection, cfg: Config) -> BackupState:
+    return BackupState(at=db.get_setting(conn, "last_backup_at"), status=db.get_setting(conn, "last_backup_status"),
+                       folder=str(cfg.backup_dir))
 
 
 # --- the API ---------------------------------------------------------------------------------------
@@ -384,6 +493,26 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
                    for p in detail["pairs"]],
             description=detail["description"],
         )
+
+    # --- health ---
+
+    @api.get("/health")
+    def health(conn: Conn) -> Health:
+        """How each source and the model are doing, and the last backup."""
+        return health_report(conn, cfg)
+
+    @api.post("/sources/{source_id}/enable", status_code=204)
+    def enable_source(source_id: str, conn: Conn) -> None:
+        """Turn a source back on after failures: its fail streak and backoff are cleared."""
+        if not conn.execute("UPDATE sources SET fail_streak = 0, backoff_until = NULL WHERE id = ?",
+                            (source_id,)).rowcount:
+            raise HTTPException(404, f"no source {source_id!r}")
+
+    @api.post("/backup")
+    def backup_now(conn: Conn) -> BackupState:
+        """Commit and push the data now, as the nightly run does."""
+        backup(cfg)  # records its own time and result
+        return _backup_state(conn, cfg)
 
     @api.post("/seen", status_code=204)
     def seen(conn: Conn) -> None:

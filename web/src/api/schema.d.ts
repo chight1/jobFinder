@@ -66,6 +66,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health
+         * @description How each source and the model are doing, and the last backup.
+         */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{source_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable Source
+         * @description Turn a source back on after failures: its fail streak and backoff are cleared.
+         */
+        post: operations["enable_source_sources__source_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backup Now
+         * @description Commit and push the data now, as the nightly run does.
+         */
+        post: operations["backup_now_backup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/seen": {
         parameters: {
             query?: never;
@@ -213,6 +273,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BackupState */
+        BackupState: {
+            /**
+             * At
+             * @description When the last backup ran (UTC); null before the first
+             */
+            at: string | null;
+            /**
+             * Status
+             * @description Its result; starts with 'failed' when it failed
+             */
+            status: string | null;
+            /**
+             * Folder
+             * @description The data repository it commits to
+             */
+            folder: string;
+        };
         /** DupePair */
         DupePair: {
             /** Job A */
@@ -231,6 +309,37 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** Health */
+        Health: {
+            /**
+             * Seconds Per Job
+             * @description Average over the last 200 extractions
+             */
+            seconds_per_job: number | null;
+            /** Queue */
+            queue: number;
+            /**
+             * Nights
+             * @description Nights the queue takes at that speed
+             */
+            nights: number | null;
+            /**
+             * Model Flags
+             * @description extraction failing, model behind
+             */
+            model_flags: string[];
+            last_run: components["schemas"]["RunTotals"] | null;
+            /**
+             * Boards
+             * @description Company boards per tier
+             */
+            boards: {
+                [key: string]: number;
+            };
+            backup: components["schemas"]["BackupState"];
+            /** Sources */
+            sources: components["schemas"]["SourceHealth"][];
         };
         /**
          * JobCard
@@ -472,6 +581,51 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** RunTotals */
+        RunTotals: {
+            /** Started At */
+            started_at: string;
+            /**
+             * Fetched
+             * @default 0
+             */
+            fetched: number;
+            /**
+             * New Sightings
+             * @default 0
+             */
+            new_sightings: number;
+            /**
+             * New Jobs
+             * @default 0
+             */
+            new_jobs: number;
+            /**
+             * Removed By Code
+             * @default 0
+             */
+            removed_by_code: number;
+            /**
+             * Extracted
+             * @default 0
+             */
+            extracted: number;
+            /**
+             * Removed After Extraction
+             * @default 0
+             */
+            removed_after_extraction: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Closed
+             * @default 0
+             */
+            closed: number;
+        };
         /** SightingRow */
         SightingRow: {
             /** Id */
@@ -598,6 +752,49 @@ export interface components {
              * @description The levels a skill can have; 0 takes it out of the profile
              */
             levels: number[];
+        };
+        /** SourceHealth */
+        SourceHealth: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Last Run At */
+            last_run_at: string | null;
+            /** Last Status */
+            last_status: string | null;
+            /**
+             * Requests
+             * @description From the source's latest run, nightly or by hand
+             */
+            requests: number;
+            /** Parsed */
+            parsed: number;
+            /** New Jobs */
+            new_jobs: number;
+            /** Errors */
+            errors: number;
+            /**
+             * Average
+             * @description New jobs per night over the last 7 nightly runs; null before any
+             */
+            average: number | null;
+            /** Backoff Until */
+            backoff_until: string | null;
+            /**
+             * Min Delay S
+             * @description This source's own gap between requests, when it has one
+             */
+            min_delay_s: number | null;
+            /** Fail Streak */
+            fail_streak: number;
+            /**
+             * Flags
+             * @description disabled, blocked or parser broken
+             */
+            flags: string[];
         };
         /** StatusChange */
         StatusChange: {
@@ -730,6 +927,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    enable_source_sources__source_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backup_now_backup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupState"];
                 };
             };
         };

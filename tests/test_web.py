@@ -7,7 +7,7 @@ import pytest
 
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/activity", "/activity/live", "/data", "/data?table=sightings&q=Acme", "/data?table=fetch_log"],
+    ["/activity", "/activity/live", "/data", "/data?table=sightings&q=Acme", "/data?table=fetch_log"],
 )
 def test_page_renders(client, path):
     response = client.get(path)
