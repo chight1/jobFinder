@@ -1,20 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobCard } from "../api/client";
-import { RATINGS, type Rating } from "../jobs";
+import { capitalized, RATINGS, type Rating } from "../jobs";
 
 // One job as a card. Every card has the same layout, so the eye learns where each thing is:
 // the score in its box; title, then company and pay; one line of facts (where, language and your
 // level in it, years asked); the skills; the page's own actions (the slot); then where it was seen
-// and a link to the details. The rating dots save at once.
+// and a link to the details. The rating dots save at once, on the job itself, so a list filtering by
+// rating sees the change.
 const props = defineProps<{ job: JobCard; fresh?: boolean }>();
-const rating = ref(props.job.rating);
-watch(
-  () => props.job.rating,
-  (value) => (rating.value = value),
-);
 
 async function rate(color: Rating) {
   try {
@@ -23,7 +19,7 @@ async function rate(color: Rating) {
       body: { rating: color },
     });
     if (data) {
-      rating.value = data.rating ?? null;
+      props.job.rating = data.rating ?? null;
       announce(data.rating ? `Rated ${data.rating}` : "Rating cleared");
     }
   } catch {
@@ -36,24 +32,24 @@ const workMode = computed(() => {
   return mode ? mode[0]!.toUpperCase() + mode.slice(1) : "Work mode unknown";
 });
 const levelTitle = computed(() =>
-  props.job.language_level ? `your level: ${props.job.language_level} of 3` : "not in your profile",
+  props.job.language_level ? `Your level: ${props.job.language_level} of 3` : "Not in your profile",
 );
 </script>
 
 <template>
-  <article class="job" :class="{ fresh }" :data-rating="rating ?? ''">
+  <article class="job" :class="{ fresh }" :data-rating="job.rating ?? ''">
     <div class="score" title="score"><span class="sr-only">Score </span>{{ Math.round(job.score ?? 0) }}</div>
     <div class="body">
       <header class="job-head">
         <div class="job-title">
           <h2>
             <a :href="job.url" target="_blank" rel="noreferrer">{{ job.title }}</a>
-            <span v-for="badge in job.badges" :key="badge" class="badge" :class="badge">{{ badge }}</span>
+            <span v-for="badge in job.badges" :key="badge" class="badge" :class="badge">{{ capitalized(badge) }}</span>
           </h2>
           <p class="company-line">
             <span class="company">{{ job.company || "Company not given" }}</span>
             <span v-if="job.pay_usd" class="pay" :title="job.pay">{{ job.pay_usd }}</span>
-            <span v-else class="pay none">pay not listed</span>
+            <span v-else class="pay none">Pay not listed</span>
           </p>
         </div>
         <div class="rate" role="group" aria-label="Rate this job">
@@ -63,9 +59,9 @@ const levelTitle = computed(() =>
             type="button"
             class="dot"
             :class="color"
-            :title="color"
+            :title="`Rate ${color}`"
             :aria-label="`Rate ${color}`"
-            :aria-pressed="rating === color"
+            :aria-pressed="job.rating === color"
             @click="rate(color)"
           ></button>
         </div>
@@ -84,7 +80,7 @@ const levelTitle = computed(() =>
           v-if="job.years_asked != null"
           class="fact"
           :class="{ over: job.years_over }"
-          :title="job.years_over ? 'asks for more years than you have' : 'years of experience asked'"
+          :title="job.years_over ? 'Asks for more years than you have' : 'Years of experience asked'"
         >{{ job.years_asked }} yrs<span v-if="job.years_over" class="sr-only">, more than you have</span></span>
       </p>
 
@@ -95,7 +91,7 @@ const levelTitle = computed(() =>
           class="chip"
           :data-level="skill.level"
           :to="`/skills/${encodeURIComponent(skill.key)}`"
-          :title="skill.level ? `in your profile, level ${skill.level}` : 'not in your profile'"
+          :title="skill.level ? `In your profile, level ${skill.level}` : 'Not in your profile'"
         >{{ skill.name }}<span v-if="skill.level" class="sr-only">, your level {{ skill.level }}</span></RouterLink>
       </p>
 
@@ -103,7 +99,7 @@ const levelTitle = computed(() =>
 
       <footer class="job-foot">
         <span class="sources">
-          via {{ job.source }}
+          Via {{ job.source }}
           <template v-if="job.others.length">
             · also
             <template v-for="(other, i) in job.others" :key="other.url">

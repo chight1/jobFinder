@@ -430,11 +430,11 @@ def fact_rules(
     return None
 
 
-def needs_japanese(facts: dict[str, Any], restored: Iterable[str] = ()) -> bool:
+def needs_japanese(facts: dict[str, Any], override: bool | None = None) -> bool:
     """Japanese is mandatory, so the job goes to the Japanese list instead of the main one. Asked only
     after fact_rules found nothing, so that list holds jobs that are targets except for the language.
-    "Requires Japanese" in restored is a job put back on the main list when this was still a removal."""
-    return "Requires Japanese" not in restored and facts.get("japanese") == "required"
+    override is the candidate moving the job by hand, which wins over the model's answer."""
+    return override if override is not None else facts.get("japanese") == "required"
 
 
 def can_commute(facts: dict[str, Any], profile: Profile, gaz: Gazetteer) -> bool:

@@ -70,7 +70,7 @@ const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
     <select v-model.number="newLevel" aria-label="Level">
       <option v-for="value in page?.levels.filter(Boolean)" :key="value" :value="value">{{ value }}</option>
     </select>
-    <button>add</button>
+    <button>Add</button>
   </form>
 
   <template v-if="page">

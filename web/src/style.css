@@ -19,9 +19,12 @@
   --unicorn: #b7a6e6;
   --check: #dcb35e;
   --dispatch: #6cc1b4;
-  --rate-green: #6cbf86;
-  --rate-yellow: #d4b452;
-  --rate-red: #de7f7a;
+  --level-green: #6cbf86; /* your level in a skill: 3, 2, 1 */
+  --level-yellow: #d4b452;
+  --level-red: #de7f7a;
+  --rate-green: #22c55e;  /* your rating of a job: rich, so a rated card stands out */
+  --rate-yellow: #eab308;
+  --rate-red: #ef4444;
 
   --small: 12px;
   --body: 14px;
@@ -139,9 +142,9 @@ section h3 { font-size: var(--body); margin: 12px 0 4px; }
 .fact.over { color: var(--flag); font-weight: 600; }
 .level-bars { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: 1px; }
 .level-bars i { width: 6px; height: 12px; border: 1px solid var(--muted); border-radius: 1px; }
-.level-bars[data-level="3"] i.on { background: var(--rate-green); border-color: var(--rate-green); }
-.level-bars[data-level="2"] i.on { background: var(--rate-yellow); border-color: var(--rate-yellow); }
-.level-bars[data-level="1"] i.on { background: var(--rate-red); border-color: var(--rate-red); }
+.level-bars[data-level="3"] i.on { background: var(--level-green); border-color: var(--level-green); }
+.level-bars[data-level="2"] i.on { background: var(--level-yellow); border-color: var(--level-yellow); }
+.level-bars[data-level="1"] i.on { background: var(--level-red); border-color: var(--level-red); }
 
 .job-foot {
   display: flex;
@@ -190,9 +193,9 @@ section h3 { font-size: var(--body); margin: 12px 0 4px; }
   color: var(--text);
 }
 a.chip:hover { text-decoration: underline; }
-.chip[data-level="3"] { border-color: var(--rate-green); }
-.chip[data-level="2"] { border-color: var(--rate-yellow); }
-.chip[data-level="1"] { border-color: var(--rate-red); }
+.chip[data-level="3"] { border-color: var(--level-green); }
+.chip[data-level="2"] { border-color: var(--level-yellow); }
+.chip[data-level="1"] { border-color: var(--level-red); }
 
 /* Rating: three dots in the card's top-right corner; a rated card gets a colored left edge. */
 .rate { display: flex; gap: 8px; padding-top: 4px; flex: none; }
@@ -204,14 +207,14 @@ a.chip:hover { text-decoration: underline; }
   border-radius: 50%;
   border: 2px solid var(--dot);
   background: transparent;
-  opacity: 0.7;
 }
-.dot:hover { opacity: 1; border-color: var(--dot); background: transparent; }
-.dot[aria-pressed="true"] { background: var(--dot); opacity: 1; }
+.dot:hover { border-color: var(--dot); background: color-mix(in srgb, var(--dot) 35%, transparent); }
+.dot[aria-pressed="true"] { background: var(--dot); }
 .dot.inline { display: inline-block; vertical-align: middle; }  /* in text, as on the job page */
 .dot.green { --dot: var(--rate-green); }
 .dot.yellow { --dot: var(--rate-yellow); }
 .dot.red { --dot: var(--rate-red); }
+.dot.grey { --dot: var(--muted); }  /* not rated, in the rating filter */
 .job[data-rating="green"] { box-shadow: inset 4px 0 0 var(--rate-green); }
 .job[data-rating="yellow"] { box-shadow: inset 4px 0 0 var(--rate-yellow); }
 .job[data-rating="red"] { box-shadow: inset 4px 0 0 var(--rate-red); }
@@ -260,12 +263,13 @@ input::placeholder { color: var(--muted); }
 }
 
 .search { display: flex; gap: 4px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .add-skill { margin: 8px 0 12px; }
 
 /* Skill level pickers: 3 green, 2 yellow, 1 red; not in the profile stays plain. */
-.level select[data-level="3"] { --lvl: var(--rate-green); }
-.level select[data-level="2"] { --lvl: var(--rate-yellow); }
-.level select[data-level="1"] { --lvl: var(--rate-red); }
+.level select[data-level="3"] { --lvl: var(--level-green); }
+.level select[data-level="2"] { --lvl: var(--level-yellow); }
+.level select[data-level="1"] { --lvl: var(--level-red); }
 .level select:not([data-level="0"]) {
   border-color: var(--lvl);
   background: color-mix(in srgb, var(--lvl) 22%, var(--surface));

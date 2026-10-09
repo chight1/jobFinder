@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+import shutil
+import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
 
 from jobhunt.web.app import create_app
+from tests.conftest import ROOT
 
 
 @pytest.fixture
@@ -42,3 +45,19 @@ def test_an_unbuilt_app_says_so(cfg, gaz, tmp_path):
     site = TestClient(create_app(dataclasses.replace(cfg, root=tmp_path), gaz))
     response = site.get("/new")
     assert response.status_code == 404 and "npm run build" in response.text
+
+
+def test_the_vue_app_types_match_the_api(client, tmp_path):
+    """web/src/api/schema.d.ts is generated from the API's schema. A change to the API without
+    `npm run types` (server running) fails here, before the Vue app can call an endpoint that is not there."""
+    web = ROOT / "web"
+    schema = tmp_path / "openapi.json"
+    schema.write_text(client.get("/api/openapi.json").text, encoding="utf-8")
+    generated = tmp_path / "schema.d.ts"
+    subprocess.run(
+        [shutil.which("node") or "node", str(web / "node_modules" / "openapi-typescript" / "bin" / "cli.js"),
+         str(schema), "-o", str(generated)],
+        check=True, capture_output=True, cwd=web,
+    )
+    committed = (web / "src" / "api" / "schema.d.ts").read_text(encoding="utf-8")
+    assert generated.read_text(encoding="utf-8") == committed, "schema.d.ts is stale: run npm run types in web/"

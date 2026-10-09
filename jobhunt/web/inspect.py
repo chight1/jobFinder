@@ -95,12 +95,12 @@ def job_detail(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
 # --- Skills page --------------------------------------------------------------------------
 
 # Which jobs the Skills page counts: the ones still in play, or every job the model has read.
-# Either way, jobs that require Japanese count only when asked for.
+# Either way, jobs that require Japanese (by the model, or moved there by hand) count only when asked for.
 SKILL_SCOPES = {
     "kept": "stage IN ('kept', 'japanese') AND closed_at IS NULL",
     "all": "facts IS NOT NULL AND facts != '{}'",
 }
-_NOT_JAPANESE = "json_extract(facts, '$.japanese') IS NOT 'required'"
+_NOT_JAPANESE = "NOT COALESCE(japanese_override, json_extract(facts, '$.japanese') IS 'required')"
 
 
 def _skill_jobs(scope: str, japanese: bool) -> str:

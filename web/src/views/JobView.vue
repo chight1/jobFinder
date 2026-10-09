@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api, type JobDetail } from "../api/client";
+import { capitalized, statusName } from "../jobs";
 
 // One job in full: its state, score parts, the model's facts and evidence, every place it was seen,
 // its model calls and duplicate checks, and the description.
@@ -47,7 +48,7 @@ function factText(value: unknown): string {
     </header>
     <p class="meta">
       {{ job.company }}<template v-if="job.location"> · {{ job.location }}</template>
-      <span v-for="badge in job.badges" :key="badge" class="badge" :class="badge">{{ badge }}</span>
+      <span v-for="badge in job.badges" :key="badge" class="badge" :class="badge">{{ capitalized(badge) }}</span>
     </p>
 
     <section>
@@ -68,13 +69,13 @@ function factText(value: unknown): string {
         <dt>Rating</dt>
         <dd>
           <template v-if="job.rating">
-            <span class="dot inline" :class="job.rating" aria-pressed="true"></span> {{ job.rating }}
+            <span class="dot inline" :class="job.rating" aria-pressed="true"></span> {{ capitalized(job.rating) }}
           </template>
-          <span v-else class="muted">not rated</span>
+          <span v-else class="muted">Not rated</span>
         </dd>
         <dt>Status</dt>
         <dd>
-          {{ job.status }}<template v-if="job.status_at"> since {{ day(job.status_at) }}</template>
+          {{ statusName(job.status) }}<template v-if="job.status_at"> since {{ day(job.status_at) }}</template>
           <template v-if="job.follow_up_on"> · follow up {{ job.follow_up_on }}</template>
         </dd>
         <dt>First seen</dt>

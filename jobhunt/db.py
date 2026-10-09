@@ -199,6 +199,15 @@ MIGRATIONS: list[str] = [
     -- The comparator is gone: lists sort by score alone.
     DROP TABLE comparisons;
     """,
+    """
+    -- The candidate moves a job between the Japanese list and the main one by hand: 1 Japanese, 0 not, NULL the
+    -- model's answer decides. A job restored from the old "Requires Japanese" removal was a manual "not".
+    ALTER TABLE jobs ADD COLUMN japanese_override INTEGER;
+    UPDATE jobs SET japanese_override = 0,
+        restored_rules = (SELECT json_group_array(value) FROM json_each(restored_rules)
+                          WHERE value != 'Requires Japanese')
+    WHERE EXISTS (SELECT 1 FROM json_each(restored_rules) WHERE value = 'Requires Japanese');
+    """,
 ]
 
 

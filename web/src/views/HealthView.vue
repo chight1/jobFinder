@@ -52,7 +52,7 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
       <h2>Model</h2>
       <p>
         <template v-if="health.seconds_per_job">{{ health.seconds_per_job.toFixed(1) }} s per job</template>
-        <template v-else>no extractions measured yet</template>
+        <template v-else>No extractions measured yet</template>
         · {{ health.queue }} queued
         <template v-if="health.nights != null"> · {{ health.nights.toFixed(1) }} nights to clear</template>
         <template v-for="flag in health.model_flags" :key="flag"> · <span class="flag">{{ flag }}</span></template>
@@ -69,7 +69,7 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
         <template v-if="Object.keys(health.boards).length">
           {{ Object.entries(health.boards).map(([tier, n]) => `${tier} ${n}`).join(" · ") }}
         </template>
-        <template v-else>none yet</template>
+        <template v-else>None yet</template>
       </p>
     </section>
 
@@ -111,7 +111,7 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
               <td>{{ minute(s.backoff_until) }}<template v-if="s.min_delay_s"> · gap {{ s.min_delay_s }}s</template></td>
               <td>
                 <template v-for="flag in s.flags" :key="flag"><span class="flag">{{ flag }}</span> </template>
-                <button v-if="s.fail_streak" type="button" @click="turnBackOn(s.id)">turn back on</button>
+                <button v-if="s.fail_streak" type="button" @click="turnBackOn(s.id)">Turn back on</button>
               </td>
             </tr>
           </tbody>

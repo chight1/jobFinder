@@ -5,21 +5,30 @@ export type Rating = NonNullable<JobCard["rating"]>;
 
 export const RATINGS: Rating[] = ["green", "yellow", "red"];
 
-// The status control on a tile, in order. Setting "to apply" also has the model draft a packet.
-export const STATUS_BUTTONS: { status: Exclude<Status, "none">; label: string; hint?: string }[] = [
-  { status: "apply", label: "to apply", hint: "also drafts an application packet" },
-  { status: "applied", label: "applied" },
-  { status: "interviewing", label: "interviewing" },
-  { status: "rejected", label: "rejected" },
-  { status: "ghosted", label: "ghosted" },
-  { status: "not_interested", label: "not interested" },
-];
+// Every status's name, in sentence case like every label in the app. A Record, so a status added to
+// the API fails the build until it has a name here.
+export const STATUS_LABELS: Record<Status, string> = {
+  none: "No status",
+  apply: "To apply",
+  applied: "Applied",
+  interviewing: "Interviewing",
+  rejected: "Rejected",
+  ghosted: "Ghosted",
+  not_interested: "Not interested",
+};
+
+export const statusName = (status: Status): string => STATUS_LABELS[status];
+
+/** A test for "the job has one of these statuses". Typed, so a renamed status fails the build. */
+export const statusIn =
+  (...statuses: Status[]) =>
+  (job: JobCard): boolean =>
+    statuses.includes(job.status);
 
 export const APPLIED_STATUSES: Status[] = ["apply", "applied", "interviewing", "rejected", "ghosted"];
 
-const STATUS_NAMES: Partial<Record<Status, string>> = { apply: "to apply", not_interested: "not interested" };
-
-export const statusName = (status: Status): string => STATUS_NAMES[status] ?? status;
+/** "unicorn" to "Unicorn": for values shown as labels. */
+export const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** Today as YYYY-MM-DD in local time, to compare with follow-up dates. */
 export function localToday(now = new Date()): string {

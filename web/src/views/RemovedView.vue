@@ -55,7 +55,7 @@ async function restore(job: JobCard) {
       aria-label="Removal rule"
       @change="pickRule(($event.target as HTMLSelectElement).value)"
     >
-      <option value="">every rule</option>
+      <option value="">Every rule</option>
       <option v-for="name in list?.rules" :key="name" :value="name">{{ name }}</option>
     </select>
   </header>
@@ -69,7 +69,7 @@ async function restore(job: JobCard) {
       </p>
       <div class="actions">
         <button type="button" :disabled="restoring.has(job.id)" @click="restore(job)">
-          {{ restoring.has(job.id) ? "restoring…" : "restore" }}
+          {{ restoring.has(job.id) ? "Restoring…" : "Restore" }}
         </button>
       </div>
     </JobTile>

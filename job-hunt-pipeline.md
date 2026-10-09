@@ -63,7 +63,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
 | settings | key, value | Last list visit, current crawl id |
 
-**Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
+**Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A button at the end of each card's buttons moves a job to the other list by hand ("Japanese" on a main-list job, "Not Japanese" on a Japanese one) (japanese_override), which wins over the model's answer and survives a rescore. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
 
 **Job status** is the candidate's: none, apply, applied, interviewing, rejected, ghosted, not_interested.
 
@@ -308,7 +308,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | View | Shows |
 | --- | --- |
 | New | jobs first seen since the last visit, by score |
-| All open | every kept, open job, by score |
+| All open | every kept, open job, by score; filter by rating (green, yellow, red, grey for unrated), any combination |
 | Japanese | open jobs that pass every rule but require Japanese, by score |
 | Removed | removed jobs, filterable by rule, each with its quote and a restore button |
 | Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
@@ -323,9 +323,9 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
-**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and the status as one segmented control: to apply, applied, interviewing, rejected, ghosted, not interested. The current status is filled in; clicking it again clears it.
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on. The current status shows filled in; clicking it again clears it.
 
-**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page.
+**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page. List filters are defined in web/src/filters.ts: each is a set of on/off options with its own matching rule, and a list's config names the filters it offers.
 
 **Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. Any status takes the job out of New and All open.
 

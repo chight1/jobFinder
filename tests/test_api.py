@@ -131,6 +131,29 @@ def test_a_job_requiring_japanese_has_its_own_list(client, conn, cfg, gaz):
     assert tuple(conn.execute("SELECT stage, removal_rule FROM jobs WHERE id = 1").fetchone()) == ("removed", "Not payroll")
 
 
+def test_moving_a_job_between_the_lists_by_hand(client, conn, cfg, gaz):
+    def move(japanese: bool):
+        return client.post("/api/jobs/1/japanese", json={"japanese": japanese})
+
+    reply = move(True).json()
+    assert reply["stage"] == "japanese" and reply["counts"]["Japanese"] == 1
+    assert titles(client, "japanese") == ["Backend Engineer"] and titles(client, "all") == []
+    assert client.get("/api/skills").json()["job_count"] == 0  # the skill filter follows the move
+    score.rescore_all(conn, cfg, gaz)
+    assert titles(client, "japanese") == ["Backend Engineer"]  # a rescore keeps it there
+
+    conn.execute("UPDATE jobs SET facts = json_set(facts, '$.japanese', 'required') WHERE id = 1")
+    assert move(False).json()["stage"] == "kept"
+    score.rescore_all(conn, cfg, gaz)
+    assert titles(client, "all") == ["Backend Engineer"]  # whatever the model said
+
+
+def test_only_listed_jobs_move_between_the_lists(client, conn):
+    conn.execute("UPDATE jobs SET stage = 'removed' WHERE id = 1")
+    assert client.post("/api/jobs/1/japanese", json={"japanese": True}).status_code == 404
+    assert client.post("/api/jobs/99/japanese", json={"japanese": True}).status_code == 404
+
+
 # --- skills ---
 
 

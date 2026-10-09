@@ -311,7 +311,8 @@ def apply_facts(conn: sqlite3.Connection, job: sqlite3.Row, cfg: Config, gaz: Ga
     if job["stage"] == "extract_failed":
         stage = "extract_failed"
     else:
-        stage = "japanese" if needs_japanese(facts, restored) else "kept"
+        override = None if job["japanese_override"] is None else bool(job["japanese_override"])
+        stage = "japanese" if needs_japanese(facts, override) else "kept"
     scored = score_job(facts, cfg, gaz, stage=stage)
     conn.execute(
         "UPDATE jobs SET stage = ?, removal_rule = NULL, removal_quote = NULL, score = ?, score_parts = ?, "

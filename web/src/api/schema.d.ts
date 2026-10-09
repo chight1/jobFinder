@@ -248,6 +248,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{job_id}/japanese": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Japanese
+         * @description Move a job to the Japanese list or the main one, whatever the model said. It stays put when
+         *     the job is scored again.
+         */
+        post: operations["set_japanese_jobs__job_id__japanese_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{job_id}/restore": {
         parameters: {
             query?: never;
@@ -449,6 +470,14 @@ export interface components {
             /** Sources */
             sources: components["schemas"]["SourceHealth"][];
         };
+        /** JapaneseChange */
+        JapaneseChange: {
+            /**
+             * Japanese
+             * @description true moves the job to the Japanese list, false to the main one
+             */
+            japanese: boolean;
+        };
         /**
          * JobCard
          * @description One job as a tile shows it.
@@ -517,6 +546,11 @@ export interface components {
              * @description ISO date to follow up an application
              */
             follow_up_on: string | null;
+            /**
+             * Stage
+             * @description kept and japanese jobs can move between the main and Japanese lists
+             */
+            stage: string;
             /** Removal Rule */
             removal_rule: string | null;
             /** Removal Quote */
@@ -671,6 +705,21 @@ export interface components {
             ok: boolean;
             /** Error */
             error: string | null;
+        };
+        /** Moved */
+        Moved: {
+            /**
+             * Stage
+             * @description japanese or kept; removed if a rule changed since the job was last scored
+             */
+            stage: string;
+            /**
+             * Counts
+             * @description The top bar's counts after the change
+             */
+            counts: {
+                [key: string]: number;
+            };
         };
         /** Packet */
         Packet: {
@@ -1366,6 +1415,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RatingSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_japanese_jobs__job_id__japanese_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JapaneseChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Moved"];
                 };
             };
             /** @description Validation Error */

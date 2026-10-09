@@ -42,7 +42,7 @@ const isJob = (column: string) => (table.value === "jobs" && column === "id") ||
   <header class="view-head">
     <h1>Data <span v-if="result" class="count">{{ result.table }}: {{ result.total }}</span></h1>
     <form class="search" @submit.prevent="submit">
-      <input v-model="search" type="search" placeholder="search every column" aria-label="Search">
+      <input v-model="search" type="search" placeholder="Search every column" aria-label="Search">
       <button>Search</button>
     </form>
   </header>
@@ -76,9 +76,9 @@ const isJob = (column: string) => (table.value === "jobs" && column === "id") ||
         </table>
       </div>
       <p v-if="result.pages > 1" class="pager">
-        <RouterLink v-if="page > 1" :to="{ query: pageQuery(page - 1) }">← newer</RouterLink>
-        page {{ page }} of {{ result.pages }}
-        <RouterLink v-if="page < result.pages" :to="{ query: pageQuery(page + 1) }">older →</RouterLink>
+        <RouterLink v-if="page > 1" :to="{ query: pageQuery(page - 1) }">← Newer</RouterLink>
+        Page {{ page }} of {{ result.pages }}
+        <RouterLink v-if="page < result.pages" :to="{ query: pageQuery(page + 1) }">Older →</RouterLink>
       </p>
     </template>
   </template>

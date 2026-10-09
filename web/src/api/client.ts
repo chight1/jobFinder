@@ -12,6 +12,5 @@ export type Health = Schemas["Health"];
 export type Activity = Schemas["Activity"];
 export type TablePage = Schemas["TablePage"];
 export type JobList = Schemas["JobList"];
-export type StatusSaved = Schemas["StatusSaved"];
 export type SkillsPage = Schemas["SkillsPage"];
 export type SkillRow = Schemas["SkillRow"];

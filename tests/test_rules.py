@@ -155,8 +155,9 @@ def test_restored_rule_never_removes_again(gaz, profile):
 def test_needs_japanese():
     assert rules.needs_japanese(FACTS | {"japanese": "required"})
     assert not rules.needs_japanese(FACTS | {"japanese": "plus"})
-    # restored to the main list back when requiring Japanese was a removal
-    assert not rules.needs_japanese(FACTS | {"japanese": "required"}, restored=["Requires Japanese"])
+    # moved by hand: that wins over the model either way
+    assert not rules.needs_japanese(FACTS | {"japanese": "required"}, override=False)
+    assert rules.needs_japanese(FACTS | {"japanese": "plus"}, override=True)
 
 
 def test_unclear_facts(gaz):

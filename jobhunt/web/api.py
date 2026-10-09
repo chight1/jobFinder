@@ -121,6 +121,7 @@ class JobCard(BaseModel):
     status: Status
     status_at: str | None
     follow_up_on: str | None = Field(description="ISO date to follow up an application")
+    stage: str = Field(description="kept and japanese jobs can move between the main and Japanese lists")
     removal_rule: str | None
     removal_quote: str | None
     source: str = Field(description="Where the primary sighting was seen")
@@ -311,12 +312,21 @@ class RatingSaved(BaseModel):
     rating: Rating | None = Field(description="null when the same color was picked again, which clears it")
 
 
+class JapaneseChange(BaseModel):
+    japanese: bool = Field(description="true moves the job to the Japanese list, false to the main one")
+
+
+class Moved(BaseModel):
+    stage: str = Field(description="japanese or kept; removed if a rule changed since the job was last scored")
+    counts: dict[str, int] = Field(description="The top bar's counts after the change")
+
+
 class Restored(BaseModel):
     stage: str = Field(description="queued for a code-removed job, else the stage its facts now give")
     counts: dict[str, int]
 
 
-# --- shared with the server-rendered pages ----------------------------------------------------------
+# --- shared by the endpoints ------------------------------------------------------------------------
 
 
 def tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
@@ -468,6 +478,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             status=row["status"],
             status_at=row["status_at"],
             follow_up_on=row["follow_up_on"],
+            stage=row["stage"],
             removal_rule=row["removal_rule"],
             removal_quote=row["removal_quote"],
             source=row["source_name"],
@@ -644,6 +655,18 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         new = None if row["rating"] == body.rating else body.rating
         conn.execute("UPDATE jobs SET rating = ? WHERE id = ?", (new, job_id))
         return RatingSaved(rating=new)
+
+    @api.post("/jobs/{job_id}/japanese")
+    def set_japanese(job_id: int, body: JapaneseChange, conn: Conn) -> Moved:
+        """Move a job to the Japanese list or the main one, whatever the model said. It stays put when
+        the job is scored again."""
+        with db.transaction(conn):
+            if not conn.execute("UPDATE jobs SET japanese_override = ? WHERE id = ? AND stage IN ('kept', 'japanese')",
+                                (int(body.japanese), job_id)).rowcount:
+                raise HTTPException(404, "no kept or Japanese job with that id")
+            stage = score.apply_facts(conn, conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone(),
+                                      cfg, gazetteer())
+        return Moved(stage=stage, counts=tab_counts(conn))
 
     @api.post("/jobs/{job_id}/restore")
     def restore(job_id: int, conn: Conn) -> Restored:
