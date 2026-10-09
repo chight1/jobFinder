@@ -4,6 +4,7 @@ Source config:
     feeds           feed URLs
     title_format    "company: title" when entry titles carry the company before a colon,
                     "title at company" when they carry it after a last " at "
+    title_prefix    text every entry title starts with, cut off ("Remote " on RemoteYeah)
     company_field   entry key holding the company (default "author")
     location_field  entry key holding the location (default "location", then "region")
     location_in_text  true when the entry text ends with a "Place · pay" line (startup.jobs)
@@ -56,6 +57,9 @@ def fetch_detail(ctx: Context, summary: Summary) -> Summary:
 
 def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     title = entry.get("title", "").strip()
+    prefix = config.get("title_prefix", "")
+    if prefix and title.startswith(prefix):
+        title = title[len(prefix):]
     company = entry.get(config.get("company_field", "author"), "")
     if config.get("title_format") == "company: title" and ":" in title:
         company, title = (part.strip() for part in title.split(":", 1))

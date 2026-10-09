@@ -231,6 +231,14 @@ def test_feed_title_with_the_company_after_at():
     assert (summary.title, summary.company) == ("Head of Data", "Chess.com")
 
 
+def test_feed_title_with_a_prefix_cut_off():
+    entry = {"title": "Remote Backend Engineer (Mid/Senior), Maps at Wheely", "link": "https://example.com/1",
+             "company": "Wheely"}
+    config = {"title_format": "title at company", "title_prefix": "Remote ", "company_field": "company"}
+    summary = rss._summary(entry, config)
+    assert (summary.title, summary.company) == ("Backend Engineer (Mid/Senior), Maps", "Wheely")
+
+
 def test_detail_browser_sends_job_pages_through_the_browser():
     assert detail_loader(json_apis, {}) is json_apis
     assert detail_loader(json_apis, {"detail_browser": True}).__name__ == "jobhunt.collectors.browser"
