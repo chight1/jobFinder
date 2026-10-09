@@ -242,6 +242,39 @@ class Health(BaseModel):
     sources: list[SourceHealth]
 
 
+class Worker(BaseModel):
+    worker: str = Field(description="e.g. run:nightly, fetch:tokyodev, model")
+    doing: str
+    age: str = Field(description="How long since it last reported, e.g. '2m 05s'")
+    stale: bool = Field(description="No report in a long time: its process has probably stopped")
+
+
+class Progress(BaseModel):
+    queue: int = Field(description="Jobs waiting for the model")
+    extracted_last_hour: int
+    requests_last_hour: int
+    seconds_per_job: float | None = Field(description="Average over the last 20 extractions")
+    time_to_clear: str | None = Field(description="Model time the queue takes at that speed")
+
+
+class Event(BaseModel):
+    at: str
+    kind: Literal["web", "model"]
+    who: str = Field(description="The source of a request, or the kind of model call")
+    what: str = Field(description="HTTP status, 'no reply', or ok / failed / invalid reply")
+    detail: str = Field(description="The URL requested, or '#id' of the job a model call was about")
+    seconds: float | None
+    error: str | None
+    bad: bool
+
+
+class Activity(BaseModel):
+    running: list[Worker]
+    progress: Progress
+    feed: list[Event] = Field(description="The latest web requests and model calls, newest first")
+    log: list[str] = Field(description="The last lines of jobhunt.log")
+
+
 class StatusChange(BaseModel):
     status: Status
 
@@ -492,6 +525,20 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             pairs=[DupePair(job_a=p["job_a"], job_b=p["job_b"], verdict=p["verdict"], decided_by=p["decided_by"])
                    for p in detail["pairs"]],
             description=detail["description"],
+        )
+
+    # --- activity ---
+
+    @api.get("/activity")
+    def activity(conn: Conn) -> Activity:
+        """What each running command and worker is doing, queue progress, the latest web requests and model
+        calls in time order, and the end of the log. The page asks again every few seconds."""
+        snapshot = inspect.activity_snapshot(conn, cfg.data_dir / "jobhunt.log")
+        return Activity(
+            running=[Worker(**item) for item in snapshot["running"]],
+            progress=Progress(**snapshot["progress"]),
+            feed=[Event(**(dict(event) | {"bad": bool(event["bad"])})) for event in snapshot["feed"]],
+            log=snapshot["log"],
         )
 
     # --- health ---

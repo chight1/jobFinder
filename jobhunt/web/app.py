@@ -70,19 +70,6 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         return render(request, "data.html", title="Data", table=table, q=q, page=max(1, page),
                       table_counts=counts, **contents)
 
-    @app.get("/activity", response_class=HTMLResponse)
-    def activity(request: Request) -> HTMLResponse:
-        with connection() as conn:
-            snapshot = inspect.activity_snapshot(conn, cfg.data_dir / "jobhunt.log")
-        return render(request, "activity.html", title="Activity", **snapshot)
-
-    @app.get("/activity/live", response_class=HTMLResponse)
-    def activity_live(request: Request) -> HTMLResponse:
-        """The Activity page's body alone, which the open page swaps in every few seconds."""
-        with connection() as conn:
-            snapshot = inspect.activity_snapshot(conn, cfg.data_dir / "jobhunt.log")
-        return templates.TemplateResponse(request, "_activity.html", snapshot)
-
     @app.get("/packets/{job_id}", response_class=HTMLResponse)
     def packet(request: Request, job_id: int) -> HTMLResponse:
         path = cfg.packets_dir / f"{job_id}.md"

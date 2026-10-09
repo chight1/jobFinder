@@ -316,7 +316,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Not interested (Vue) | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
 | Skill's jobs (Vue) | the open jobs asking for one skill, from a skill chip or the Skills table |
 | Health (Vue) | per-source status (see Health and errors), and the last backup with a "Back up now" button |
-| Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
+| Activity (Vue) | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
 | Skills (Vue) | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; the filters are in the URL; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
 | Job (#id) (Vue) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |

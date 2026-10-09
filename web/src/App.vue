@@ -14,7 +14,7 @@ const tabs: { name: string; to?: string; href?: string }[] = [
   { name: "Not interested", to: "/not-interested" },
   { name: "Skills", to: "/skills" },
   { name: "Health", to: "/health" },
-  { name: "Activity", href: "/activity" },
+  { name: "Activity", to: "/activity" },
   { name: "Data", href: "/data" },
 ];
 

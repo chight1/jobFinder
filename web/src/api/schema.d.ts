@@ -66,6 +66,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Activity
+         * @description What each running command and worker is doing, queue progress, the latest web requests and model
+         *     calls in time order, and the end of the log. The page asks again every few seconds.
+         */
+        get: operations["activity_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -273,6 +294,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Activity */
+        Activity: {
+            /** Running */
+            running: components["schemas"]["Worker"][];
+            progress: components["schemas"]["Progress"];
+            /**
+             * Feed
+             * @description The latest web requests and model calls, newest first
+             */
+            feed: components["schemas"]["Event"][];
+            /**
+             * Log
+             * @description The last lines of jobhunt.log
+             */
+            log: string[];
+        };
         /** BackupState */
         BackupState: {
             /**
@@ -304,6 +341,37 @@ export interface components {
             verdict: string | null;
             /** Decided By */
             decided_by: string | null;
+        };
+        /** Event */
+        Event: {
+            /** At */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "web" | "model";
+            /**
+             * Who
+             * @description The source of a request, or the kind of model call
+             */
+            who: string;
+            /**
+             * What
+             * @description HTTP status, 'no reply', or ok / failed / invalid reply
+             */
+            what: string;
+            /**
+             * Detail
+             * @description The URL requested, or '#id' of the job a model call was about
+             */
+            detail: string;
+            /** Seconds */
+            seconds: number | null;
+            /** Error */
+            error: string | null;
+            /** Bad */
+            bad: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -552,6 +620,28 @@ export interface components {
             name: string;
             /** Level */
             level: number;
+        };
+        /** Progress */
+        Progress: {
+            /**
+             * Queue
+             * @description Jobs waiting for the model
+             */
+            queue: number;
+            /** Extracted Last Hour */
+            extracted_last_hour: number;
+            /** Requests Last Hour */
+            requests_last_hour: number;
+            /**
+             * Seconds Per Job
+             * @description Average over the last 20 extractions
+             */
+            seconds_per_job: number | null;
+            /**
+             * Time To Clear
+             * @description Model time the queue takes at that speed
+             */
+            time_to_clear: string | null;
         };
         /** RatingChange */
         RatingChange: {
@@ -836,6 +926,26 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** Worker */
+        Worker: {
+            /**
+             * Worker
+             * @description e.g. run:nightly, fetch:tokyodev, model
+             */
+            worker: string;
+            /** Doing */
+            doing: string;
+            /**
+             * Age
+             * @description How long since it last reported, e.g. '2m 05s'
+             */
+            age: string;
+            /**
+             * Stale
+             * @description No report in a long time: its process has probably stopped
+             */
+            stale: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -927,6 +1037,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activity_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
                 };
             };
         };

@@ -181,6 +181,27 @@ def test_health_model_and_backup(client):
     assert health["queue"] == 0 and health["last_run"] is None and health["backup"]["at"] is None
 
 
+# --- activity ---
+
+
+def test_activity_shows_the_running_worker_and_the_feed(client):
+    activity = client.get("/api/activity").json()
+    assert [(w["worker"], w["doing"], w["stale"]) for w in activity["running"]] == [
+        ("model", "extracting #1 Backend Engineer", False)]
+    assert activity["feed"][0] == {**activity["feed"][0], "kind": "model", "detail": "#1", "what": "ok", "bad": False}
+    assert activity["progress"]["queue"] == 0
+
+
+def test_a_long_run_is_not_stale_while_its_worker_reports(client, conn):
+    conn.execute("INSERT INTO activity (worker, doing, since) VALUES ('run:process', 'model worker', "
+                 "'2000-01-01T00:00:00+00:00')")
+    stale = {w["worker"]: w["stale"] for w in client.get("/api/activity").json()["running"]}
+    assert stale["run:process"] is False  # the model note is fresh
+
+    conn.execute("UPDATE activity SET since = '2000-01-01T00:00:00+00:00'")
+    assert all(w["stale"] for w in client.get("/api/activity").json()["running"])  # nothing reported in years
+
+
 # --- the rest ---
 
 
