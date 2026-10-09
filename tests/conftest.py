@@ -4,11 +4,13 @@ import dataclasses
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from jobhunt import config as config_module
 from jobhunt import db
 from jobhunt.config import Config, Profile
 from jobhunt.rules import Gazetteer, Place
+from jobhunt.web.app import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,3 +70,27 @@ def conn(cfg: Config):
     db.migrate(connection)
     yield connection
     connection.close()
+
+
+@pytest.fixture
+def client(cfg: Config, conn, gaz: Gazetteer) -> TestClient:
+    """The web app over a database holding one kept job (#1, Backend Engineer at Acme, asking for Go)."""
+    db.sync_sources(conn, ROOT / "sources.csv")
+    now = db.utc_now()
+    sighting = conn.execute(
+        "INSERT INTO sightings (source_id, external_id, url, title, company_raw, location_raw, description, "
+        "first_seen_at, last_seen_at) VALUES ('tokyodev', 'x', 'https://example.com/1', 'Backend Engineer', "
+        "'Acme', 'Tokyo', '<p>Build things</p>', ?, ?)",
+        (now, now),
+    ).lastrowid
+    job = conn.execute(
+        "INSERT INTO jobs (company_norm, title_norm, city_norm, primary_sighting_id, stage, facts, score, "
+        "score_parts, reason_line, badges, first_seen_at, listed_at) VALUES ('acme', 'backend engineer', 'tokyo', "
+        "?, 'kept', ?, 72.5, ?, 'remote', '[\"unicorn\"]', ?, ?)",
+        (sighting, '{"work_mode": "remote", "stack": ["Go"], "evidence": {"japanese": "English only"}}',
+         '{"pay": 0.4, "location": 1.0}', now, now),
+    ).lastrowid
+    conn.execute("UPDATE sightings SET job_id = ? WHERE id = ?", (job, sighting))
+    conn.execute("INSERT INTO llm_log (kind, job_id, seconds, ok, at) VALUES ('extract', ?, 65.0, 1, ?)", (job, now))
+    db.set_activity(conn, "model", f"extracting #{job} Backend Engineer")
+    return TestClient(create_app(cfg, gaz))

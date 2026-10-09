@@ -11,19 +11,20 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from jobhunt import db, profile_file, rules, score
+from jobhunt import db, rules, score
 from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
-from jobhunt.config import Config, reload_skills
+from jobhunt.config import Config
 from jobhunt.fetch import Fetcher, FetchError
 from jobhunt.rules import Gazetteer
 from jobhunt.text import to_text
 from jobhunt.web import inspect
+from jobhunt.web.api import create_api
 
 log = logging.getLogger(__name__)
 
@@ -252,33 +253,6 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
             )
         return RedirectResponse("/health", status_code=303)
 
-    @app.get("/skills", response_class=HTMLResponse)
-    def skills(request: Request, scope: str = "kept", japanese: bool = False) -> HTMLResponse:
-        if scope not in inspect.SKILL_SCOPES:
-            raise HTTPException(404, f"no scope {scope!r}")
-        reload_skills(cfg)  # pick up hand edits to profile.toml too
-        with connection() as conn:
-            stats = inspect.skill_stats(conn, cfg.profile, scope, japanese=japanese)
-        seen = {s["key"] for s in stats["skills"]}
-        unseen = sorted(
-            ((name, level) for name, level in cfg.profile.skills.items() if score.canonical_skill(name) not in seen),
-            key=lambda item: (-item[1], item[0]),
-        )
-        return render(request, "skills.html", title="Skills", scope=scope, japanese=japanese, unseen=unseen,
-                      levels=profile_file.LEVELS, **stats)
-
-    @app.post("/skills/level")
-    def set_skill_level(name: str = Form(...), level: int = Form(...)) -> JSONResponse:
-        """Change a skill's level in profile.toml (0 removes it), then rescore every job with facts."""
-        try:
-            stored = profile_file.set_skill_level(cfg.profile_path, name, level)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        reload_skills(cfg)
-        with connection() as conn:
-            rescored = score.rescore_all(conn, cfg, gazetteer())
-        return JSONResponse({"name": stored, "level": level, "rescored": rescored})
-
     @app.get("/skills/{key}", response_class=HTMLResponse)
     def skill_jobs(request: Request, key: str, japanese: bool = False) -> HTMLResponse:
         """The open kept jobs that ask for one skill, and the Japanese ones too when asked."""
@@ -331,6 +305,25 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         if not path.exists():
             raise HTTPException(404, "no packet for this job yet")
         return render(request, "packet.html", title=f"Packet {job_id}", text=path.read_text(encoding="utf-8"))
+
+    app.mount("/api", create_api(cfg, gazetteer, _tab_counts))
+    web_dist = (cfg.root / "web" / "dist").resolve()
+
+    @app.get("/app")
+    def vue_root() -> RedirectResponse:
+        return RedirectResponse("/app/", status_code=307)
+
+    @app.get("/app/{path:path}")
+    def vue_app(path: str) -> FileResponse:
+        """The Vue app built from web/ (npm run build). A path that is not a built file is one of the app's
+        pages, so it gets index.html and the app's router shows the page."""
+        file = (web_dist / path).resolve()
+        if path and file.is_file() and file.is_relative_to(web_dist):
+            return FileResponse(file)
+        index = web_dist / "index.html"
+        if not index.is_file():
+            raise HTTPException(404, "the Vue app is not built yet: npm run build in web/")
+        return FileResponse(index)
 
     return app
 

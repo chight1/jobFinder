@@ -4,6 +4,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# The Vue app's packages and build (npm install, npm run build in web/)
+web/node_modules/
+web/dist/
+
 # Run-time data: database, raw page cache, GeoNames, logs
 data/
 

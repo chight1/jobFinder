@@ -145,6 +145,15 @@ def skill_stats(
     return {"skills": rows, "job_count": len(jobs)}
 
 
+def unseen_skills(profile: Profile, stats: dict[str, Any]) -> list[tuple[str, int]]:
+    """Skills in the profile that none of skill_stats' jobs name, strongest first."""
+    seen = {s["key"] for s in stats["skills"]}
+    return sorted(
+        ((name, level) for name, level in profile.skills.items() if canonical_skill(name) not in seen),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+
 def distinct_skill_count(conn: sqlite3.Connection) -> int:
     """How many different skills the open kept jobs name, for the Skills tab. Japanese jobs left out."""
     keys = set()

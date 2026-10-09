@@ -9,7 +9,7 @@
 <body>
   <nav>
     {% for href, name in [("/new", "New"), ("/all", "All open"), ("/japanese", "Japanese"), ("/removed", "Removed"),
-                          ("/applied", "Applied"), ("/not-interested", "Not interested"), ("/skills", "Skills"), ("/health", "Health"), ("/activity", "Activity"),
+                          ("/applied", "Applied"), ("/not-interested", "Not interested"), ("/app/skills", "Skills"), ("/health", "Health"), ("/activity", "Activity"),
                           ("/data", "Data")] %}
     <a href="{{ href }}"{% if title == name %} aria-current="page"{% endif %}>{{ name }}
       {%- if name in counts %} <span class="tab-count" data-tab="{{ name }}">{{ counts[name] }}</span>{% endif %}</a>

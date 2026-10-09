@@ -34,7 +34,7 @@ Python 3.12, one package named jobhunt, one SQLite file and one command-line ent
 | dedupe | Merges sightings into jobs | datasketch (MinHash) |
 | llm | Talks to the local model and validates its output | httpx, pydantic |
 | score | Formula scoring and the comparator | standard library |
-| web | The list page | FastAPI, Jinja2, uvicorn |
+| web | The list page: a JSON API and the Vue app it serves (pages still moving from Jinja2 templates) | FastAPI with Pydantic models, uvicorn; Vue 3, TypeScript, Vite, Vue Router, openapi-fetch, Vitest |
 | packets | Application packets | llm |
 
 **Files on disk**
@@ -311,7 +311,7 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765, server-rendered with FastAPI and Jinja2, with no JavaScript framework. It reads the database directly, so it is always current. New and All open add jobs live: one small script asks the server every 10 seconds for jobs listed since its last check and slots them in by score, highlighted briefly.
+"jobhunt serve" runs a local web page at localhost:8765. The pages are moving one at a time from server-rendered Jinja2 templates to a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`) and served under /app/. The Vue pages read a JSON API under /api: FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. Either way the page reads the database directly, so it is always current. New and All open add jobs live: one small script asks the server every 10 seconds for jobs listed since its last check and slots them in by score, highlighted briefly.
 
 | View | Shows |
 | --- | --- |
@@ -323,7 +323,7 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 | Not interested | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
 | Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
-| Skills | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| Skills (Vue) | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; the filters are in the URL; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate and comparison results, and the description |
 
