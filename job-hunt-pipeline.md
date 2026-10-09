@@ -303,7 +303,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. The jobs table adds jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to.
+"jobhunt serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. The jobs table adds jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to. The browser also remembers the jobs table's last filters, so a bare /jobs (the Jobs tab) opens where the candidate left off.
 | View | Shows |
 | --- | --- |
 | Jobs | every job in one table, best first (at most 500 at a time), narrowed by filters; see The jobs table |
@@ -322,6 +322,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Japanese | Japanese, **not Japanese**: the model's answer, or the candidate's move by hand |
 | Status | **no status**, to apply, applied, interviewing, rejected, ghosted, not interested |
 | Removed | **kept**, then one option per removal rule |
+| Source | **every source that has given us a job**; a job shows while any source it was seen on is on |
 
 A plain /jobs is the open list. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 

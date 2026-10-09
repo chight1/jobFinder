@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { type LocationQuery, RouterLink, useRoute, useRouter } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobList, type JobsQuery } from "../api/client";
 import CardButtons from "../components/CardButtons.vue";
@@ -9,11 +9,13 @@ import JobTile from "../components/JobTile.vue";
 import { insertByScore, localToday, statusName } from "../jobs";
 
 // The jobs table: every job, narrowed by filters, best first. The API holds the filters and says which
-// options are on; the choice lives in the query string, so a view survives a reload. The page adds jobs
-// as the model finishes them, and asks again after a button changes a job, since the job may no longer
-// pass the filters.
+// options are on; the choice lives in the query string, and this browser remembers the last one, so a bare
+// /jobs (the Jobs tab) opens where the candidate left off. The page adds jobs as the model finishes them, and asks
+// again after a button changes a job, since the job may no longer pass the filters.
 const route = useRoute();
+const router = useRouter();
 const POLL_MS = 10_000;
+const SAVED_KEY = "jobs.query";
 
 const list = ref<JobList | null>(null);
 const failed = ref(false);
@@ -32,7 +34,31 @@ async function load() {
     failed.value = true; // the server is down or restarting
   }
 }
-watch(() => route.query, load, { immediate: true });
+
+// Storage can be blocked (a private window, say); the page then just starts from the defaults.
+function remember() {
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(route.query));
+  } catch {}
+}
+function remembered(): LocationQuery {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+const saved = Object.keys(route.query).length ? {} : remembered();
+if (Object.keys(saved).length) router.replace({ query: saved }); // the watch below loads it
+else {
+  remember();
+  load();
+}
+watch(() => route.query, () => {
+  remember();
+  load();
+});
 
 // Every 10 seconds, ask for the jobs listed since the last answer.
 let timer: number | undefined;
