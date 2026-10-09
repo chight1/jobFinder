@@ -42,7 +42,7 @@ fourdayweek,4 Day Week,html,global_board,https://4dayweek.io,0,,,,Not checked ye
 wttj,Welcome to the Jungle,html,global_board,https://www.welcometothejungle.com/en/jobs,0,,,,Not checked yet. Formerly Otta
 techinasia,Tech in Asia Jobs,html,global_board,https://jobs.techinasia.com,0,,,,Not checked yet
 nodeflair,NodeFlair,html,global_board,https://nodeflair.com/jobs,0,,,,Not checked yet
-pythonorg,Python.org job board,rss,global_board,https://www.python.org/jobs/,0,,,,Not checked yet. An RSS feed is likely
+pythonorg,Python.org job board,rss,global_board,https://www.python.org/jobs/,1,,,"{""feeds"": [""https://www.python.org/jobs/feed/rss/""], ""title_format"": ""title, company"", ""location_first_line"": true}","RSS of the newest 20 jobs, with the full description. Titles read ""<title>, <company>""; the entry text starts with the place (the poster's city, region and country fields). No date and no company element"
 golangprojects,Golang Projects,html,global_board,https://www.golangprojects.com,0,,,,Not checked yet
 rustjobs,Rust Jobs,html,global_board,https://rustjobs.dev,0,,,,Not checked yet
 aijobs,AI Jobs,html,global_board,https://aijobs.net,0,,,,Not checked yet

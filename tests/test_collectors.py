@@ -231,6 +231,17 @@ def test_feed_title_with_the_company_after_at():
     assert (summary.title, summary.company) == ("Head of Data", "Chess.com")
 
 
+def test_feed_title_with_the_company_after_a_comma_and_the_place_first():
+    config = {"title_format": "title, company", "location_first_line": True}
+    entry = {"title": "Software Engineer, Full Stack (Python, Rust), Gridnaut Recruiting", "link": "https://example.com/1",
+             "summary": "Remote (UK / EU), Remote (UK / EU), Remote (UK / EU)\n\nWe are hiring."}
+    summary = rss._summary(entry, config)
+    assert (summary.title, summary.company) == ("Software Engineer, Full Stack (Python, Rust)", "Gridnaut Recruiting")
+    assert summary.location == "Remote (UK / EU)"  # repeated place fields collapse
+    summary = rss._summary(entry | {"title": "Back-End Python Engineer, ActivePrime, Inc."}, config)
+    assert (summary.title, summary.company) == ("Back-End Python Engineer", "ActivePrime, Inc.")
+
+
 def test_a_feed_can_send_every_entry_to_its_job_page():
     entry = {"title": "Machine Learning Engineer at Twilio", "link": "https://example.com/1", "summary": "x" * 600}
     assert rss._summary(entry, {}).description == "x" * 600  # long enough: no job page

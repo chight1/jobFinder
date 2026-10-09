@@ -41,7 +41,7 @@ def canonical_url(url: str) -> str:
 
 # --- level 2: same key ------------------------------------------------------------
 
-_LEGAL_SUFFIXES = frozenset({"inc", "llc", "ltd", "co", "corp", "gmbh", "kk"})
+LEGAL_SUFFIXES = frozenset({"inc", "llc", "ltd", "co", "corp", "gmbh", "kk"})
 _JAPANESE_LEGAL = ("株式会社", "合同会社", "(株)")
 _BRACKETED = re.compile(r"[(\[{（【「][^)\]}）】」]*[)\]}）】」]")
 _PUNCTUATION = re.compile(r"[^\w\s]")
@@ -52,7 +52,7 @@ def company_norm(raw: str, aliases: dict[str, str] | None = None) -> str:
     for suffix in _JAPANESE_LEGAL:
         text = text.replace(suffix, " ")
     text = _PUNCTUATION.sub(" ", text.replace(".", ""))  # "K.K." -> "kk", "Co.,Ltd." -> "co ltd"
-    norm = " ".join(t for t in text.split() if t not in _LEGAL_SUFFIXES)
+    norm = " ".join(t for t in text.split() if t not in LEGAL_SUFFIXES)
     return (aliases or {}).get(norm, norm)
 
 

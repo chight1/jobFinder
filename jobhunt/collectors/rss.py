@@ -3,11 +3,13 @@
 Source config:
     feeds           feed URLs
     title_format    "company: title" when entry titles carry the company before a colon,
-                    "title at company" when they carry it after a last " at "
+                    "title at company" when they carry it after a last " at ",
+                    "title, company" when they carry it after a last comma (Python.org)
     title_prefix    text every entry title starts with, cut off ("Remote " on RemoteYeah)
     company_field   entry key holding the company (default "author")
     location_field  entry key holding the location (default "location", then "region")
     location_in_text  true when the entry text ends with a "Place · pay" line (startup.jobs)
+    location_first_line  true when the entry text starts with the place, as "City, Region, Country" (Python.org)
     fetch_job_page  true when entries lack something only the job page has (Remote First Jobs: the
                     location): every new entry that passes the title rules gets its job page
 """
@@ -21,6 +23,7 @@ import feedparser
 
 from jobhunt.collectors import Context, Listing, PostingGone, Summary
 from jobhunt.collectors.pages import parse_job_page
+from jobhunt.dedupe import LEGAL_SUFFIXES
 from jobhunt.text import to_text
 
 SHORT_TEXT_CHARS = 500  # a feed entry shorter than this gets a detail fetch
@@ -68,6 +71,12 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
     elif config.get("title_format") == "title at company" and " at " in title:
         title, named = (part.strip() for part in title.rsplit(" at ", 1))
         company = company or named
+    elif config.get("title_format") == "title, company" and ", " in title:
+        title, named = title.rsplit(", ", 1)
+        if named.strip(" .").lower() in LEGAL_SUFFIXES and ", " in title:  # "ActivePrime, Inc."
+            title, first = title.rsplit(", ", 1)
+            named = f"{first}, {named}"
+        title, company = title.strip(), company or named.strip()
 
     text = ""
     if entry.get("content"):
@@ -78,6 +87,10 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
         location = entry.get(config["location_field"], "")
     else:
         location = entry.get("location", "") or entry.get("region", "")
+    if config.get("location_first_line") and not location:
+        first = next((line for line in to_text(text).splitlines() if line.strip()), "")
+        parts = [part.strip() for part in first.split(",") if part.strip()]
+        location = ", ".join(dict.fromkeys(parts))  # the place fields often repeat: "Remote, Remote, Worldwide"
     if config.get("location_in_text") and not location:
         lines = [line for line in to_text(text).splitlines() if line.strip()]
         location = lines[-1].split("·", 1)[0].strip() if len(lines) > 1 else ""  # one line is only the teaser
