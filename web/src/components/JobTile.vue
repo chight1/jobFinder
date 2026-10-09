@@ -3,14 +3,15 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobCard } from "../api/client";
-import { capitalized, RATINGS, type Rating } from "../jobs";
+import { capitalized, RATINGS, skillLink, type Rating } from "../jobs";
 
 // One job as a card. Every card has the same layout, so the eye learns where each thing is:
 // the score in its box; title, then company and pay; one line of facts (where, language and your
 // level in it, years asked); the skills; the page's own actions (the slot); then where it was seen
-// and a link to the details. The rating dots save at once, on the job itself, so a list filtering by
-// rating sees the change.
+// and a link to the details. The rating dots save at once; the page then hears of the change, since
+// its filters may no longer let the job through.
 const props = defineProps<{ job: JobCard; fresh?: boolean }>();
+const emit = defineEmits<{ changed: [] }>();
 
 async function rate(color: Rating) {
   try {
@@ -21,6 +22,7 @@ async function rate(color: Rating) {
     if (data) {
       props.job.rating = data.rating ?? null;
       announce(data.rating ? `Rated ${data.rating}` : "Rating cleared");
+      emit("changed");
     }
   } catch {
     // The server is down or restarting; clicking again retries.
@@ -90,7 +92,7 @@ const levelTitle = computed(() =>
           :key="i"
           class="chip"
           :data-level="skill.level"
-          :to="`/skills/${encodeURIComponent(skill.key)}`"
+          :to="skillLink(skill.key)"
           :title="skill.level ? `In your profile, level ${skill.level}` : 'Not in your profile'"
         >{{ skill.name }}<span v-if="skill.level" class="sr-only">, your level {{ skill.level }}</span></RouterLink>
       </p>

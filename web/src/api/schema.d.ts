@@ -4,26 +4,6 @@
  */
 
 export interface paths {
-    "/tabs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Tabs
-         * @description How many records each tab in the top bar holds.
-         */
-        get: operations["tabs_tabs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/jobs": {
         parameters: {
             query?: never;
@@ -33,8 +13,10 @@ export interface paths {
         };
         /**
          * Jobs
-         * @description One tab's jobs. rule narrows Removed to one removal rule. after (an earlier reply's `now`) narrows
-         *     New and All open to the jobs listed since, for an open page to add as the model finishes them.
+         * @description Every job the filters let through, best first. Each filter takes the options that are on as
+         *     repeated parameters (?status=applied&status=interviewing); one it leaves out uses its defaults,
+         *     and the reply lists every filter's options. `after` is for an open page to add the jobs the
+         *     model finishes.
          */
         get: operations["jobs_jobs_get"];
         put?: never;
@@ -187,26 +169,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/seen": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Seen
-         * @description Mark everything seen: New then holds only jobs first seen after now.
-         */
-        post: operations["seen_seen_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/jobs/{job_id}/status": {
         parameters: {
             query?: never;
@@ -303,26 +265,6 @@ export interface paths {
          *     "all" every job the model has read; jobs that require Japanese count only with japanese=true.
          */
         get: operations["skills_skills_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/skills/{key}/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Skill Jobs
-         * @description The open kept jobs that ask for one skill (any spelling), best first; the Japanese ones too when asked.
-         */
-        get: operations["skill_jobs_skills__key__jobs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -433,6 +375,20 @@ export interface components {
             error: string | null;
             /** Bad */
             bad: boolean;
+        };
+        /** FilterState */
+        FilterState: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Look
+             * @enum {string}
+             */
+            look: "buttons" | "dots";
+            /** Options */
+            options: components["schemas"]["OptionState"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -673,15 +629,20 @@ export interface components {
             /** Jobs */
             jobs: components["schemas"]["JobCard"][];
             /**
+             * Total
+             * @description How many jobs the filters let through; at most MAX_JOBS come back
+             */
+            total: number;
+            /**
              * Now
              * @description Pass back as `after` to get only the jobs listed since
              */
             now: string;
             /**
-             * Rules
-             * @description Removed: every removal rule, for the filter
+             * Filters
+             * @description Every filter, with which options are on
              */
-            rules: string[];
+            filters: components["schemas"]["FilterState"][];
         };
         /** Link */
         Link: {
@@ -713,13 +674,15 @@ export interface components {
              * @description japanese or kept; removed if a rule changed since the job was last scored
              */
             stage: string;
-            /**
-             * Counts
-             * @description The top bar's counts after the change
-             */
-            counts: {
-                [key: string]: number;
-            };
+        };
+        /** OptionState */
+        OptionState: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** On */
+            on: boolean;
         };
         /** Packet */
         Packet: {
@@ -783,10 +746,6 @@ export interface components {
              * @description queued for a code-removed job, else the stage its facts now give
              */
             stage: string;
-            /** Counts */
-            counts: {
-                [key: string]: number;
-            };
         };
         /** RunTotals */
         RunTotals: {
@@ -1022,13 +981,6 @@ export interface components {
             status_at: string | null;
             /** Follow Up On */
             follow_up_on: string | null;
-            /**
-             * Counts
-             * @description The top bar's counts after the change
-             */
-            counts: {
-                [key: string]: number;
-            };
         };
         /** TablePage */
         TablePage: {
@@ -1100,33 +1052,17 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    tabs_tabs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
-                };
-            };
-        };
-    };
     jobs_jobs_get: {
         parameters: {
-            query: {
-                view: "new" | "all" | "japanese" | "removed" | "applied" | "not_interested";
-                rule?: string | null;
+            query?: {
+                rating?: string[] | null;
+                japanese?: string[] | null;
+                status?: string[] | null;
+                removed?: string[] | null;
+                posting?: string[] | null;
+                /** @description Only the jobs asking for this skill, under any spelling */
+                skill?: string | null;
+                /** @description An earlier reply's `now`: only the jobs listed since */
                 after?: string | null;
             };
             header?: never;
@@ -1340,24 +1276,6 @@ export interface operations {
             };
         };
     };
-    seen_seen_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     set_status_jobs__job_id__status_post: {
         parameters: {
             query?: never;
@@ -1513,39 +1431,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillsPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    skill_jobs_skills__key__jobs_get: {
-        parameters: {
-            query?: {
-                japanese?: boolean;
-            };
-            header?: never;
-            path: {
-                key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobList"];
                 };
             };
             /** @description Validation Error */

@@ -160,11 +160,11 @@ def distinct_skill_count(conn: sqlite3.Connection) -> int:
     return len(keys)
 
 
-def job_ids_with_skill(conn: sqlite3.Connection, key: str, *, japanese: bool = False) -> list[int]:
-    """Open kept jobs whose stack names this skill under any spelling, with the Japanese ones when asked."""
+def job_ids_with_skill(conn: sqlite3.Connection, key: str) -> list[int]:
+    """Jobs whose stack names this skill under any spelling; the jobs table's filters narrow them."""
     return [
         row["id"]
-        for row in conn.execute(f"SELECT id, facts FROM jobs WHERE {_skill_jobs('kept', japanese)}")
+        for row in conn.execute("SELECT id, facts FROM jobs WHERE facts IS NOT NULL")
         if key in {canonical_skill(s) for s in (db.loads(row["facts"], {}) or {}).get("stack") or []}
     ]
 

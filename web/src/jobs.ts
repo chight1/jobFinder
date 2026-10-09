@@ -25,7 +25,11 @@ export const statusIn =
   (job: JobCard): boolean =>
     statuses.includes(job.status);
 
-export const APPLIED_STATUSES: Status[] = ["apply", "applied", "interviewing", "rejected", "ghosted"];
+/** The jobs table narrowed to the jobs asking for one skill; Japanese ones too when asked. */
+export const skillLink = (key: string, withJapanese = false) => ({
+  path: "/jobs",
+  query: { skill: key, ...(withJapanese ? { japanese: ["japanese", "not_japanese"] } : {}) },
+});
 
 /** "unicorn" to "Unicorn": for values shown as labels. */
 export const capitalized = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);

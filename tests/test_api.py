@@ -7,24 +7,43 @@ import json
 
 import pytest
 
+from typing import get_args
+
 from jobhunt import score
+from jobhunt.web import api, filters
 
 
-def titles(client, view: str, **params) -> list[str]:
-    return [job["title"] for job in client.get("/api/jobs", params={"view": view, **params}).json()["jobs"]]
+def titles(client, **params) -> list[str]:
+    """The titles on the jobs table under these filters (each a list of the options that are on)."""
+    return [job["title"] for job in client.get("/api/jobs", params=params).json()["jobs"]]
 
 
-# --- job lists ---
+# --- the jobs table ---
 
 
-@pytest.mark.parametrize("view", ["new", "all", "japanese", "removed", "applied", "not_interested"])
-def test_every_list_answers(client, view):
-    assert client.get("/api/jobs", params={"view": view}).status_code == 200
+def test_a_plain_table_is_the_open_list(client, conn):
+    reply = client.get("/api/jobs").json()
+    assert [j["title"] for j in reply["jobs"]] == ["Backend Engineer"] and reply["total"] == 1
+    on = {f["key"]: [o["key"] for o in f["options"] if o["on"]] for f in reply["filters"]}
+    assert on == {"rating": ["green", "yellow", "red", "grey"], "japanese": ["not_japanese"], "status": ["none"],
+                  "removed": ["kept"], "posting": ["open"]}
+
+    conn.execute("UPDATE jobs SET closed_at = '2026-10-01' WHERE id = 1")
+    assert titles(client) == [] and titles(client, posting=["open", "closed"]) == ["Backend Engineer"]
+
+
+def test_options_within_a_filter_add_up_and_filters_narrow(client, conn):
+    conn.execute("UPDATE jobs SET rating = 'red' WHERE id = 1")
+    assert titles(client, rating=["green"]) == []
+    assert titles(client, rating=["green", "red"]) == ["Backend Engineer"]
+    assert titles(client, rating=["red"], status=["applied"]) == []  # every filter must pass
+    assert titles(client, rating=[""]) == []  # every option off
+    assert titles(client, rating=["purple"]) == []  # an unknown option matches nothing
 
 
 def test_a_job_as_a_tile(client):
-    job = client.get("/api/jobs", params={"view": "all"}).json()["jobs"][0]
-    assert (job["title"], job["company"], job["status"]) == ("Backend Engineer", "Acme", "none")
+    job = client.get("/api/jobs").json()["jobs"][0]
+    assert (job["title"], job["company"], job["status"], job["stage"]) == ("Backend Engineer", "Acme", "none", "kept")
     assert job["place"] == ""  # remote with no office city: the raw location is left out
     assert job["badges"] == ["unicorn"] and job["work_mode"] == "remote"
     assert job["skills"] == [{"name": "Go", "key": "go", "level": 0}]  # Go is not in the test profile
@@ -34,26 +53,25 @@ def test_a_card_has_pay_in_dollars_and_years_against_yours(client, conn):
     conn.execute("""UPDATE jobs SET facts = json_set(facts, '$.pay_min', 66000, '$.pay_max', 100000,
                     '$.pay_currency', 'USD', '$.pay_period', 'year', '$.years_required', 6,
                     '$.primary_language', 'JavaScript') WHERE id = 1""")
-    job = client.get("/api/jobs", params={"view": "all"}).json()["jobs"][0]
+    job = client.get("/api/jobs").json()["jobs"][0]
     assert job["pay_usd"] == "$66k–$100k"
     assert job["years_asked"] == 6 and job["years_over"]  # the test profile has 5 years
     assert job["language_level"] == 3
 
 
-def test_a_live_list_gets_only_jobs_listed_since(client):
-    now = client.get("/api/jobs", params={"view": "all"}).json()["now"]
-    assert titles(client, "all", after=now) == []
-    assert titles(client, "all", after="2000-01-01") == ["Backend Engineer"]
+def test_a_live_table_gets_only_jobs_listed_since(client):
+    now = client.get("/api/jobs").json()["now"]
+    assert titles(client, after=now) == []
+    assert titles(client, after="2000-01-01") == ["Backend Engineer"]
 
 
-def test_mark_all_seen_empties_new(client):
-    assert titles(client, "new") == ["Backend Engineer"]
-    assert client.post("/api/seen").status_code == 204
-    assert titles(client, "new") == [] and titles(client, "all") == ["Backend Engineer"]
+def test_jobs_asking_for_a_skill_under_any_spelling(client):
+    assert titles(client, skill="GO") == ["Backend Engineer"]
+    assert titles(client, skill="rust") == []
 
 
-def test_unknown_view_is_refused(client):
-    assert client.get("/api/jobs", params={"view": "everything"}).status_code == 422
+def test_the_status_filter_names_every_status():
+    assert list(filters.STATUS_LABELS) == list(get_args(api.Status))
 
 
 # --- one job ---
@@ -78,26 +96,25 @@ def test_missing_job_is_404(client):
 
 def test_rating_sets_and_toggles_off(client):
     assert client.post("/api/jobs/1/rating", json={"rating": "green"}).json() == {"rating": "green"}
-    assert client.get("/api/jobs", params={"view": "all"}).json()["jobs"][0]["rating"] == "green"
+    assert client.get("/api/jobs").json()["jobs"][0]["rating"] == "green"
     assert client.post("/api/jobs/1/rating", json={"rating": "green"}).json() == {"rating": None}
     assert client.post("/api/jobs/1/rating", json={"rating": "purple"}).status_code == 422
     assert client.post("/api/jobs/99/rating", json={"rating": "red"}).status_code == 404
 
 
-def test_a_status_moves_the_job_between_lists(client):
+def test_a_status_moves_the_job_between_filters(client):
     reply = client.post("/api/jobs/1/status", json={"status": "not_interested"}).json()
-    assert reply["counts"]["All open"] == 0 and reply["counts"]["Not interested"] == 1
-    assert titles(client, "all") == [] and titles(client, "not_interested") == ["Backend Engineer"]
+    assert reply["status"] == "not_interested" and reply["status_at"]
+    assert titles(client) == [] and titles(client, status=["not_interested"]) == ["Backend Engineer"]
 
-    reply = client.post("/api/jobs/1/status", json={"status": "none"}).json()  # cleared: back in the lists
-    assert reply["status_at"] is None and reply["counts"]["All open"] == 1
-    assert titles(client, "all") == ["Backend Engineer"]
+    reply = client.post("/api/jobs/1/status", json={"status": "none"}).json()  # cleared: back in the open list
+    assert reply["status_at"] is None and titles(client) == ["Backend Engineer"]
 
 
 def test_applied_sets_a_follow_up_date(client):
     reply = client.post("/api/jobs/1/status", json={"status": "applied"}).json()
     assert reply["follow_up_on"] and reply["status_at"]
-    assert titles(client, "applied") == ["Backend Engineer"]
+    assert titles(client, status=["applied"]) == ["Backend Engineer"]
 
 
 # --- removed jobs ---
@@ -106,24 +123,25 @@ def test_applied_sets_a_follow_up_date(client):
 def test_restore_judges_a_read_job_again(client, conn):
     conn.execute("UPDATE jobs SET stage = 'removed', removal_rule = 'Not payroll', removal_quote = 'Contract', "
                  "facts = json_set(facts, '$.employment', 'contract') WHERE id = 1")
-    removed = client.get("/api/jobs", params={"view": "removed", "rule": "Not payroll"}).json()
-    assert [j["removal_rule"] for j in removed["jobs"]] == ["Not payroll"] and "Not payroll" in removed["rules"]
+    assert titles(client) == []  # the plain table shows kept jobs only
+    removed = client.get("/api/jobs", params={"removed": ["Not payroll"]}).json()
+    assert [j["removal_rule"] for j in removed["jobs"]] == ["Not payroll"]
+    rules = next(f for f in removed["filters"] if f["key"] == "removed")["options"]
+    assert [(o["key"], o["on"]) for o in rules] == [("kept", False), ("Not payroll", True)]  # one option per rule
 
-    reply = client.post("/api/jobs/1/restore").json()
-    assert reply["stage"] == "kept" and reply["counts"]["Removed"] == 0  # the rule never removes it again
+    assert client.post("/api/jobs/1/restore").json()["stage"] == "kept"  # the rule never removes it again
+    assert titles(client) == ["Backend Engineer"]
     assert client.post("/api/jobs/1/restore").status_code == 404  # no longer removed
 
 
 # --- the Japanese list ---
 
 
-def test_a_job_requiring_japanese_has_its_own_list(client, conn, cfg, gaz):
+def test_a_job_requiring_japanese_is_left_out_unless_asked_for(client, conn, cfg, gaz):
     facts = {"japanese": "required", "stack": ["Go"], "evidence": {"japanese": "JLPT N1"}}
     conn.execute("UPDATE jobs SET facts = ? WHERE id = 1", (json.dumps(facts),))
     score.rescore_all(conn, cfg, gaz)
-    assert titles(client, "japanese") == ["Backend Engineer"] and titles(client, "all") == []
-    assert client.get("/api/skills/go/jobs").json()["jobs"] == []  # skill lists leave Japanese jobs out
-    assert len(client.get("/api/skills/go/jobs", params={"japanese": True}).json()["jobs"]) == 1  # unless asked
+    assert titles(client, japanese=["japanese"]) == ["Backend Engineer"] and titles(client) == []
 
     # Japanese is checked last: a job another rule removes is just removed
     conn.execute("UPDATE jobs SET facts = ? WHERE id = 1", (json.dumps(facts | {"employment": "contract"}),))
@@ -135,17 +153,16 @@ def test_moving_a_job_between_the_lists_by_hand(client, conn, cfg, gaz):
     def move(japanese: bool):
         return client.post("/api/jobs/1/japanese", json={"japanese": japanese})
 
-    reply = move(True).json()
-    assert reply["stage"] == "japanese" and reply["counts"]["Japanese"] == 1
-    assert titles(client, "japanese") == ["Backend Engineer"] and titles(client, "all") == []
+    assert move(True).json()["stage"] == "japanese"
+    assert titles(client, japanese=["japanese"]) == ["Backend Engineer"] and titles(client) == []
     assert client.get("/api/skills").json()["job_count"] == 0  # the skill filter follows the move
     score.rescore_all(conn, cfg, gaz)
-    assert titles(client, "japanese") == ["Backend Engineer"]  # a rescore keeps it there
+    assert titles(client, japanese=["japanese"]) == ["Backend Engineer"]  # a rescore keeps it there
 
     conn.execute("UPDATE jobs SET facts = json_set(facts, '$.japanese', 'required') WHERE id = 1")
     assert move(False).json()["stage"] == "kept"
     score.rescore_all(conn, cfg, gaz)
-    assert titles(client, "all") == ["Backend Engineer"]  # whatever the model said
+    assert titles(client) == ["Backend Engineer"]  # whatever the model said
 
 
 def test_only_listed_jobs_move_between_the_lists(client, conn):
@@ -170,10 +187,6 @@ def test_skills_filters(client, conn):
     assert client.get("/api/skills").json()["job_count"] == 0  # Japanese jobs are left out
     assert client.get("/api/skills?japanese=true").json()["job_count"] == 1
     assert client.get("/api/skills?scope=everything").status_code == 422
-
-
-def test_skill_jobs_any_spelling(client):
-    assert [j["title"] for j in client.get("/api/skills/GO/jobs").json()["jobs"]] == ["Backend Engineer"]
 
 
 def test_skill_level_saves_and_rescores(client, cfg):
@@ -256,11 +269,6 @@ def test_packet(client, cfg):
 
 
 # --- the rest ---
-
-
-def test_tab_counts(client):
-    counts = client.get("/api/tabs").json()
-    assert counts["All open"] == 1 and counts["Japanese"] == 0 and counts["Skills"] == 1
 
 
 def test_docs_describe_the_api(client):

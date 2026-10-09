@@ -1,40 +1,17 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { onUnmounted, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 import { announce } from "../announce";
-import { api, type JobCard, type JobList } from "../api/client";
+import { api, type JobList, type JobsQuery } from "../api/client";
 import CardButtons from "../components/CardButtons.vue";
 import FilterBar from "../components/FilterBar.vue";
 import JobTile from "../components/JobTile.vue";
-import { passes, RATING_FILTER, type Filter } from "../filters";
-import { APPLIED_STATUSES, insertByScore, localToday, statusIn, statusName } from "../jobs";
-import { refreshTabCounts } from "../tabCounts";
+import { insertByScore, localToday, statusName } from "../jobs";
 
-type ListView = "new" | "all" | "japanese" | "applied" | "not_interested" | "skill";
-const props = defineProps<{ view: ListView; skill?: string; japanese?: boolean }>();
-
-// What each list shows. `keeps` is the rule for a job on it: a job a button changes so the rule no
-// longer holds leaves the list. A `live` list adds jobs as the model finishes them, without a reload.
-// `filters` are the ones its filter bar offers.
-type ListConfig = {
-  title: string;
-  empty: string;
-  keeps: (job: JobCard) => boolean;
-  live?: boolean;
-  filters?: Filter[];
-};
-const open = statusIn("none");
-const onMainList = (job: JobCard) => open(job) && (job.stage === "kept" || job.stage === "extract_failed");
-const VIEWS: Record<ListView, ListConfig> = {
-  new: { title: "New", empty: "Nothing new.", keeps: onMainList, live: true },
-  all: { title: "All open", empty: "Nothing here.", keeps: onMainList, live: true, filters: [RATING_FILTER] },
-  japanese: { title: "Japanese", empty: "No Japanese jobs yet.", keeps: (job) => open(job) && job.stage === "japanese" },
-  applied: { title: "Applied", empty: "Nothing applied for yet.", keeps: statusIn(...APPLIED_STATUSES) },
-  not_interested: { title: "Not interested", empty: "Nothing marked not interested.", keeps: statusIn("not_interested") },
-  skill: { title: `Jobs asking for ${props.skill}`, empty: "No open jobs ask for it.", keeps: open },
-};
-const config = VIEWS[props.view];
-const filters = config.filters ?? [];
+// The jobs table: every job, narrowed by filters, best first. The API holds the filters and says which
+// options are on; the choice lives in the query string, so a view survives a reload. The page adds jobs
+// as the model finishes them, and asks again after a button changes a job, since the job may no longer
+// pass the filters.
 const route = useRoute();
 const POLL_MS = 10_000;
 
@@ -43,14 +20,8 @@ const failed = ref(false);
 const fresh = ref(new Set<number>());
 const today = localToday();
 
-function fetchJobs(after?: string) {
-  if (props.view === "skill") {
-    return api.GET("/skills/{key}/jobs", {
-      params: { path: { key: props.skill ?? "" }, query: { japanese: props.japanese } },
-    });
-  }
-  return api.GET("/jobs", { params: { query: { view: props.view, after } } });
-}
+const fetchJobs = (after?: string) =>
+  api.GET("/jobs", { params: { query: { ...(route.query as JobsQuery), after } } });
 
 async function load() {
   try {
@@ -61,8 +32,9 @@ async function load() {
     failed.value = true; // the server is down or restarting
   }
 }
+watch(() => route.query, load, { immediate: true });
 
-// A live list asks every 10 seconds for the jobs listed since its last answer.
+// Every 10 seconds, ask for the jobs listed since the last answer.
 let timer: number | undefined;
 async function poll() {
   try {
@@ -71,57 +43,46 @@ async function poll() {
     if (shown && data) {
       const arrived = data.jobs.filter((job) => !shown.jobs.some((other) => other.id === job.id));
       shown.jobs = insertByScore(shown.jobs, arrived);
+      shown.total += arrived.length;
       shown.now = data.now;
       for (const job of arrived) fresh.value.add(job.id);
-      if (arrived.length) {
-        announce(`${arrived.length} new job${arrived.length === 1 ? "" : "s"}`);
-        await refreshTabCounts();
-      }
+      if (arrived.length) announce(`${arrived.length} new job${arrived.length === 1 ? "" : "s"}`);
     }
   } catch {
     // The server is down or restarting; the next check tries again.
   }
   timer = window.setTimeout(poll, POLL_MS);
 }
-
-load();
-if (config.live) timer = window.setTimeout(poll, POLL_MS);
+timer = window.setTimeout(poll, POLL_MS);
 onUnmounted(() => window.clearTimeout(timer));
 
-// The jobs the filters let through; a rating changed on a card applies at once.
-const shown = computed(() => list.value?.jobs.filter((job) => passes(job, filters, route.query)) ?? []);
-
-// A button changed a job: it leaves the list unless the list's rule still holds.
-function changed() {
-  if (list.value) list.value.jobs = list.value.jobs.filter(config.keeps);
-}
-
-async function markSeen() {
-  const { response } = await api.POST("/seen");
-  if (!response.ok || !list.value) return;
-  list.value.jobs = [];
-  announce("Marked all seen");
-  await refreshTabCounts();
-}
+const withoutSkill = () => {
+  const { skill: _, ...rest } = route.query;
+  return { query: rest };
+};
 </script>
 
 <template>
   <header class="view-head">
     <h1>
-      {{ config.title }}
+      Jobs
       <span v-if="list" class="count">
-        {{ shown.length }}<template v-if="shown.length < list.jobs.length"> of {{ list.jobs.length }}</template>
+        {{ list.total }}<template v-if="list.jobs.length < list.total">, best {{ list.jobs.length }} shown</template>
       </span>
     </h1>
-    <FilterBar v-if="filters.length" :filters="filters" />
-    <button v-if="view === 'new'" type="button" @click="markSeen">Mark all seen</button>
+    <FilterBar v-if="list" :filters="list.filters" />
+    <RouterLink v-if="route.query.skill" class="chip" :to="withoutSkill()" :aria-label="`Stop filtering by ${route.query.skill}`">
+      Skill: {{ route.query.skill }} ×
+    </RouterLink>
   </header>
 
   <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
   <template v-else-if="list">
-    <p v-if="!list.jobs.length" class="empty">{{ config.empty }}</p>
-    <p v-else-if="!shown.length" class="empty">No jobs match the filters.</p>
-    <JobTile v-for="job in shown" :key="job.id" :job="job" :fresh="fresh.has(job.id)">
+    <p v-if="!list.jobs.length" class="empty">No jobs match the filters.</p>
+    <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="load">
+      <p v-if="job.removal_rule" class="removal">
+        Removed: <strong>{{ job.removal_rule }}</strong><template v-if="job.removal_quote">: “{{ job.removal_quote }}”</template>
+      </p>
       <p v-if="job.status !== 'none'" class="status-line">
         <strong>{{ statusName(job.status) }}</strong> since {{ job.status_at?.slice(0, 10) }}
         <template v-if="job.follow_up_on">
@@ -129,7 +90,7 @@ async function markSeen() {
         </template>
       </p>
       <div class="actions">
-        <CardButtons :job="job" @changed="changed" />
+        <CardButtons :job="job" @changed="load" />
       </div>
     </JobTile>
   </template>

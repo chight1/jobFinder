@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { api, type SkillsPage } from "../api/client";
+import { skillLink } from "../jobs";
 import LevelPicker from "../components/LevelPicker.vue";
 import QueryLink from "../components/QueryLink.vue";
 
@@ -40,10 +41,7 @@ async function addSkill() {
   await load(); // the new skill shows in whichever table it belongs to
 }
 
-const jobsLink = (key: string) => ({
-  path: `/skills/${encodeURIComponent(key)}`,
-  query: japanese.value ? { japanese: "1" } : {},
-});
+const jobsLink = (key: string) => skillLink(key, japanese.value);
 const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
 </script>
 

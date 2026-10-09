@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Callable, Iterator, Literal, get_args
+from typing import Annotated, Any, Callable, Iterator, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -20,30 +20,14 @@ from jobhunt.config import Config, reload_skills
 from jobhunt.fetch import Fetcher, FetchError
 from jobhunt.rules import Gazetteer
 from jobhunt.text import to_text
-from jobhunt.web import inspect
+from jobhunt.web import filters, inspect
+from jobhunt.web.filters import FilterState
 
 log = logging.getLogger(__name__)
 
 Status = Literal["none", "apply", "applied", "interviewing", "rejected", "ghosted", "not_interested"]
 Rating = Literal["green", "yellow", "red"]
-View = Literal["new", "all", "japanese", "removed", "applied", "not_interested"]
-
-APPLIED_STATUSES = tuple(s for s in get_args(Status) if s not in ("none", "not_interested"))
-_OPEN = "j.closed_at IS NULL AND j.status = 'none'"
-_LISTED = f"j.stage IN ('kept', 'extract_failed') AND {_OPEN}"  # New and All open
-_WHERE: dict[str, str] = {
-    "new": _LISTED,  # and first seen since the last visit, added in /jobs
-    "all": _LISTED,
-    "japanese": f"j.stage = 'japanese' AND {_OPEN}",  # the backup list
-    "removed": "j.stage IN ('code_removed', 'removed')",
-    "applied": f"j.status IN ({', '.join(repr(s) for s in APPLIED_STATUSES)})",
-    "not_interested": "j.status = 'not_interested'",
-}
-_ORDER: dict[str, str] = {
-    "removed": "j.first_seen_at DESC LIMIT 500",
-    "applied": "j.status_at DESC",
-    "not_interested": "j.status_at DESC",
-}
+MAX_JOBS = 500  # a page this long is already more than anyone reads; filters narrow it
 _JOB_COLUMNS = """
     SELECT j.*, s.title, s.company_raw, s.location_raw, s.url, src.name AS source_name,
            EXISTS (SELECT 1 FROM packets p WHERE p.job_id = j.id) AS has_packet
@@ -131,10 +115,16 @@ class JobCard(BaseModel):
     skills: list[SkillChip]
 
 
+class JobsQuery(filters.FilterQuery):  # one model for every query parameter, as FastAPI wants
+    skill: str | None = Field(None, description="Only the jobs asking for this skill, under any spelling")
+    after: str | None = Field(None, description="An earlier reply's `now`: only the jobs listed since")
+
+
 class JobList(BaseModel):
     jobs: list[JobCard]
+    total: int = Field(description="How many jobs the filters let through; at most MAX_JOBS come back")
     now: str = Field(description="Pass back as `after` to get only the jobs listed since")
-    rules: list[str] = Field(description="Removed: every removal rule, for the filter")
+    filters: list[FilterState] = Field(description="Every filter, with which options are on")
 
 
 class SightingRow(BaseModel):
@@ -301,7 +291,6 @@ class StatusSaved(BaseModel):
     status: Status
     status_at: str | None
     follow_up_on: str | None
-    counts: dict[str, int] = Field(description="The top bar's counts after the change")
 
 
 class RatingChange(BaseModel):
@@ -318,33 +307,13 @@ class JapaneseChange(BaseModel):
 
 class Moved(BaseModel):
     stage: str = Field(description="japanese or kept; removed if a rule changed since the job was last scored")
-    counts: dict[str, int] = Field(description="The top bar's counts after the change")
 
 
 class Restored(BaseModel):
     stage: str = Field(description="queued for a code-removed job, else the stage its facts now give")
-    counts: dict[str, int]
 
 
 # --- shared by the endpoints ------------------------------------------------------------------------
-
-
-def tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
-    """How many records each tab in the top bar holds."""
-    since = db.get_setting(conn, "last_list_visit", "")
-
-    def one(sql: str, *params: Any) -> int:
-        return conn.execute(sql, params).fetchone()[0]
-
-    return {
-        "New": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED} AND j.first_seen_at > ?", since),
-        "All open": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['all']}"),
-        "Japanese": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['japanese']}"),
-        "Removed": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['removed']}"),
-        "Applied": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['applied']}"),
-        "Not interested": one(f"SELECT COUNT(*) FROM jobs j WHERE {_WHERE['not_interested']}"),
-        "Skills": inspect.distinct_skill_count(conn),
-    }
 
 
 def health_report(conn: sqlite3.Connection, cfg: Config) -> Health:
@@ -491,34 +460,26 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             ],
         )
 
-    @api.get("/tabs")
-    def tabs(conn: Conn) -> dict[str, int]:
-        """How many records each tab in the top bar holds."""
-        return tab_counts(conn)
-
-    # --- job lists ---
+    # --- the jobs table ---
 
     @api.get("/jobs")
-    def jobs(conn: Conn, view: View, rule: str | None = None, after: str | None = None) -> JobList:
-        """One tab's jobs. rule narrows Removed to one removal rule. after (an earlier reply's `now`) narrows
-        New and All open to the jobs listed since, for an open page to add as the model finishes them."""
+    def jobs(conn: Conn, query: Annotated[JobsQuery, Query()]) -> JobList:
+        """Every job the filters let through, best first. Each filter takes the options that are on as
+        repeated parameters (?status=applied&status=interviewing); one it leaves out uses its defaults,
+        and the reply lists every filter's options. `after` is for an open page to add the jobs the
+        model finishes."""
         now = db.utc_now()
-        where, params = _WHERE[view], []
-        if view == "new":
-            where += " AND j.first_seen_at > ?"
-            params.append(db.get_setting(conn, "last_list_visit", ""))
-        if after:
+        where, params, states = filters.apply(conn, query)
+        if query.skill:
+            ids = inspect.job_ids_with_skill(conn, score.canonical_skill(query.skill))
+            where += f" AND j.id IN ({','.join('?' * len(ids))})" if ids else " AND 0"
+            params += ids
+        if query.after:
             where += " AND j.listed_at > ? AND j.listed_at <= ?"
-            params += [after, now]
-        if view == "removed" and rule:
-            where += " AND j.removal_rule = ?"
-            params.append(rule)
-        found = cards(conn, where, params, _ORDER.get(view, "j.score DESC"))
-        rule_names = []
-        if view == "removed":
-            rule_names = [r[0] for r in conn.execute(
-                "SELECT DISTINCT removal_rule FROM jobs WHERE removal_rule IS NOT NULL ORDER BY 1")]
-        return JobList(jobs=found, now=now, rules=rule_names)
+            params += [query.after, now]
+        total = conn.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params).fetchone()[0]
+        found = cards(conn, where, params, f"j.score IS NULL, j.score DESC, j.first_seen_at DESC LIMIT {MAX_JOBS}")
+        return JobList(jobs=found, total=total, now=now, filters=states)
 
     @api.get("/jobs/{job_id}")
     def job(job_id: int, conn: Conn) -> JobDetail:
@@ -620,11 +581,6 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         backup(cfg)  # records its own time and result
         return _backup_state(conn, cfg)
 
-    @api.post("/seen", status_code=204)
-    def seen(conn: Conn) -> None:
-        """Mark everything seen: New then holds only jobs first seen after now."""
-        db.set_setting(conn, "last_list_visit", db.utc_now())
-
     @api.post("/jobs/{job_id}/status")
     def set_status(job_id: int, body: StatusChange, conn: Conn) -> StatusSaved:
         """Set a job's status. "none" clears it, and the job goes back to the lists as if never marked.
@@ -643,8 +599,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         row = conn.execute("SELECT status_at, follow_up_on FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row is None:
             raise HTTPException(404, f"no job #{job_id}")
-        return StatusSaved(status=body.status, status_at=row["status_at"], follow_up_on=row["follow_up_on"],
-                           counts=tab_counts(conn))
+        return StatusSaved(status=body.status, status_at=row["status_at"], follow_up_on=row["follow_up_on"])
 
     @api.post("/jobs/{job_id}/rating")
     def set_rating(job_id: int, body: RatingChange, conn: Conn) -> RatingSaved:
@@ -666,7 +621,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
                 raise HTTPException(404, "no kept or Japanese job with that id")
             stage = score.apply_facts(conn, conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone(),
                                       cfg, gazetteer())
-        return Moved(stage=stage, counts=tab_counts(conn))
+        return Moved(stage=stage)
 
     @api.post("/jobs/{job_id}/restore")
     def restore(job_id: int, conn: Conn) -> Restored:
@@ -684,7 +639,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         else:
             requeue(conn, job, restored)
             stage = "queued"
-        return Restored(stage=stage, counts=tab_counts(conn))
+        return Restored(stage=stage)
 
     def requeue(conn: sqlite3.Connection, job: sqlite3.Row, restored: str) -> None:
         """A code-removed job goes to the model queue, with the description it never had and a fresh prescore."""
@@ -721,13 +676,6 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             unseen=[ProfileSkill(name=n, level=lvl) for n, lvl in inspect.unseen_skills(cfg.profile, stats)],
             levels=list(profile_file.LEVELS),
         )
-
-    @api.get("/skills/{key}/jobs")
-    def skill_jobs(key: str, conn: Conn, japanese: bool = False) -> JobList:
-        """The open kept jobs that ask for one skill (any spelling), best first; the Japanese ones too when asked."""
-        ids = inspect.job_ids_with_skill(conn, score.canonical_skill(key), japanese=japanese)
-        found = cards(conn, f"j.id IN ({','.join('?' * len(ids))})", ids, "j.score DESC") if ids else []
-        return JobList(jobs=found, now=db.utc_now(), rules=[])
 
     @api.post("/skills/level")
     def set_skill_level(body: SkillLevel, conn: Conn) -> SkillLevelSaved:

@@ -5,12 +5,13 @@ import type { components, paths } from "./schema";
 // (`npm run types` with the server running), so a changed response model is a type error here.
 export const api = createClient<paths>({ baseUrl: "/api" });
 
-type Schemas = components["schemas"];
+export type Schemas = components["schemas"];
 export type JobCard = Schemas["JobCard"];
 export type JobDetail = Schemas["JobDetail"];
 export type Health = Schemas["Health"];
 export type Activity = Schemas["Activity"];
 export type TablePage = Schemas["TablePage"];
 export type JobList = Schemas["JobList"];
+export type JobsQuery = NonNullable<paths["/jobs"]["get"]["parameters"]["query"]>;
 export type SkillsPage = Schemas["SkillsPage"];
 export type SkillRow = Schemas["SkillRow"];

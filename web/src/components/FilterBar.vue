@@ -1,43 +1,35 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { optionsOn, toggled, type Filter } from "../filters";
+import { toggled, type FilterState } from "../filters";
+import FilterMenu from "./FilterMenu.vue";
 
-// A list's filters, each as a strip of on/off buttons or a row of dots. A click flips one option in
-// the query string; a filled-in dot or pressed button is on.
-defineProps<{ filters: Filter[] }>();
+// The jobs table's filters on one line: a filter shown as dots is a row of dots like the rating dots
+// on a card (each option's key is then its color, and a filled-in dot is on); every other filter is a
+// dropdown checklist. A change flips one option in the query string.
+defineProps<{ filters: FilterState[] }>();
 const route = useRoute();
 const router = useRouter();
 
-const flip = (filter: Filter, option: string) => router.replace({ query: toggled(filter, option, route.query) });
+const flip = (filter: FilterState, option: string) => router.replace({ query: toggled(filter, option, route.query) });
 </script>
 
 <template>
   <div class="filters">
-    <div
-      v-for="filter in filters"
-      :key="filter.key"
-      :class="filter.dots ? 'rate' : 'segmented'"
-      role="group"
-      :aria-label="`${filter.label} filter`"
-    >
-      <template v-for="option in filter.options" :key="option.key">
+    <template v-for="filter in filters" :key="filter.key">
+      <div v-if="filter.look === 'dots'" class="rate" role="group" :aria-label="`${filter.label} filter`">
         <button
-          v-if="filter.dots"
+          v-for="option in filter.options"
+          :key="option.key"
           type="button"
           class="dot"
           :class="option.key"
-          :aria-pressed="optionsOn(filter, route.query).has(option.key)"
+          :aria-pressed="option.on"
           :aria-label="`Show ${option.label.toLowerCase()}`"
           :title="`Show ${option.label.toLowerCase()}`"
           @click="flip(filter, option.key)"
         ></button>
-        <button
-          v-else
-          type="button"
-          :aria-pressed="optionsOn(filter, route.query).has(option.key)"
-          @click="flip(filter, option.key)"
-        >{{ option.label }}</button>
-      </template>
-    </div>
+      </div>
+      <FilterMenu v-else :filter="filter" @flip="flip(filter, $event)" />
+    </template>
   </div>
 </template>

@@ -304,16 +304,10 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. New and All open add jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to.
+"jobhunt serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. The jobs table adds jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to.
 | View | Shows |
 | --- | --- |
-| New | jobs first seen since the last visit, by score |
-| All open | every kept, open job, by score; filter by rating (green, yellow, red, grey for unrated), any combination |
-| Japanese | open jobs that pass every rule but require Japanese, by score |
-| Removed | removed jobs, filterable by rule, each with its quote and a restore button |
-| Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
-| Not interested | jobs marked not interested, newest first; clicking a job's current status again clears it and puts the job back in the lists |
-| Skill's jobs | the open jobs asking for one skill, from a skill chip or the Skills table |
+| Jobs | every job in one table, best first (at most 500 at a time), narrowed by filters; see The jobs table |
 | Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
 | Skills | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
@@ -321,15 +315,27 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 | Packet (#id) | the application packet drafted for a job marked apply |
 
-The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
+**The jobs table** works like a ServiceNow list: one table of every job, and filters instead of separate lists. Each filter is a set of on/off options, any combination, and a job shows when an option that is on matches it in every filter. The filters live in jobhunt/web/filters.py, each option with its own SQL condition; the API's query parameters and the page's filter bar are both built from that list, so a new filter is one entry there. The filters sit on one line beside the heading: rating as dots, every other filter as a dropdown checklist whose button says what is on ("Status: No status", "Any", "3 of 7").
 
-**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on. The current status shows filled in; clicking it again clears it.
+| Filter | Options (on by default in bold) |
+| --- | --- |
+| Rating | **green**, **yellow**, **red**, **not rated**, shown as dots like the card's rating dots |
+| Japanese | Japanese, **not Japanese**: the model's answer, or the candidate's move by hand |
+| Status | **no status**, to apply, applied, interviewing, rejected, ghosted, not interested |
+| Removed | **kept**, then one option per removal rule |
+| Posting | **open**, closed |
 
-**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page. List filters are defined in web/src/filters.ts: each is a set of on/off options with its own matching rule, and a list's config names the filters it offers.
+A plain /jobs is the open list. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 
-**Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. Any status takes the job out of New and All open.
+Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
-**Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows in the Applied view.
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, and Restore on a removed job. The current status shows filled in; clicking it again clears it.
+
+**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status, and a rated job gets a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page.
+
+**Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. After any button, the table asks again, so a job its filters no longer let through leaves it.
+
+**Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows on the job's card.
 
 ## Application packets
 
