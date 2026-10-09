@@ -1,4 +1,4 @@
-"""The list page: server-rendered views over the database, plain form posts, no JavaScript."""
+"""The list page: server-rendered views over the database. Small scripts save tile and skill changes in place."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from jobhunt.collectors.runner import fill_detail
 from jobhunt.config import Config, reload_skills
 from jobhunt.fetch import Fetcher, FetchError
 from jobhunt.rules import Gazetteer
+from jobhunt.text import to_text
 from jobhunt.web import inspect
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ STATUS_NAMES = {"apply": "to apply", "not_interested": "not interested"}
 BUTTON_LABELS = {"apply": "draft packet", "not_interested": "not interested"}
 _HERE = Path(__file__).parent
 _LISTED = "j.stage IN ('kept', 'extract_failed') AND j.closed_at IS NULL AND j.status = 'none'"
+_JAPANESE = "j.stage = 'japanese' AND j.closed_at IS NULL AND j.status = 'none'"  # the backup list
 APPLIED_STATUSES = tuple(s for s in STATUSES if s != "not_interested")  # the Applied tab; not interested has its own
 _APPLIED = f"j.status IN ({', '.join(repr(s) for s in APPLIED_STATUSES)})"
 _JOB_COLUMNS = """
@@ -110,6 +112,13 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         return render(request, "list.html", title="All open", jobs=jobs, top_count=len(top), live="all",
                       now=db.utc_now())
 
+    @app.get("/japanese", response_class=HTMLResponse)
+    def japanese(request: Request) -> HTMLResponse:
+        """Jobs that pass every rule but require Japanese, best first, for when the English ones run out."""
+        with connection() as conn:
+            jobs = _jobs(conn, _JAPANESE, (), "j.score DESC")
+        return render(request, "list.html", title="Japanese", jobs=jobs)
+
     @app.get("/rows", response_class=HTMLResponse)
     def rows(request: Request, view: str, after: str) -> HTMLResponse:
         """Rows for jobs listed since `after`, for an open New or All open page to add without a reload.
@@ -159,8 +168,9 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
             context = _health(conn, cfg)
         return render(request, "health.html", title="Health", **context)
 
-    @app.post("/jobs/{job_id}/status", response_model=None)
-    def set_status(request: Request, job_id: int, status: str = Form(...)) -> RedirectResponse | JSONResponse:
+    @app.post("/jobs/{job_id}/status")
+    def set_status(job_id: int, status: str = Form(...)) -> JSONResponse:
+        """Set a job's status from a tile; the reply carries the fresh tab counts for the page to show."""
         if status not in STATUSES and status != "none":
             raise HTTPException(400, f"unknown status {status!r}")
         follow_up = None
@@ -176,18 +186,15 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
                     (status, db.utc_now(), follow_up, job_id),
                 )
             counts = _tab_counts(conn)
-        # As with ratings: the tile's script asks for JSON so you keep your place in the list.
-        if request.headers.get("x-requested-with") == "fetch":
-            return JSONResponse({"status": status, "name": STATUS_NAMES.get(status, status), "counts": counts})
-        return RedirectResponse(request.headers.get("referer") or "/new", status_code=303)
+        return JSONResponse({"status": status, "name": STATUS_NAMES.get(status, status), "counts": counts})
 
     def gazetteer() -> Gazetteer:
         if not gaz:
             gaz.append(Gazetteer.from_geonames(cfg.geonames_dir))
         return gaz[0]
 
-    @app.post("/jobs/{job_id}/rating", response_model=None)
-    def set_rating(request: Request, job_id: int, rating: str = Form(...)) -> RedirectResponse | JSONResponse:
+    @app.post("/jobs/{job_id}/rating")
+    def set_rating(job_id: int, rating: str = Form(...)) -> JSONResponse:
         """Mark how much the candidate likes a job. Choosing the current color again clears it."""
         if rating not in RATINGS:
             raise HTTPException(400, f"unknown rating {rating!r}")
@@ -197,10 +204,7 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
                 raise HTTPException(404, f"no job #{job_id}")
             new = None if row["rating"] == rating else rating
             conn.execute("UPDATE jobs SET rating = ? WHERE id = ?", (new, job_id))
-        # The tile's script asks for JSON so the page needn't reload; a plain form post goes back where it was.
-        if request.headers.get("x-requested-with") == "fetch":
-            return JSONResponse({"rating": new})
-        return RedirectResponse(request.headers.get("referer") or "/all", status_code=303)
+        return JSONResponse({"rating": new})
 
     @app.post("/jobs/{job_id}/restore")
     def restore(request: Request, job_id: int) -> RedirectResponse:
@@ -232,6 +236,7 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         prescore = rules.prescore(
             title=sighting["title"], location=sighting["location_raw"], posted_at=sighting["posted_at"],
             fields=db.loads(sighting["source_fields"], {}), gaz=gazetteer(), profile=cfg.profile, rates=cfg.currency,
+            description_text=to_text(sighting["description"]),
         )
         conn.execute(
             "UPDATE jobs SET stage = 'queued', removal_rule = NULL, removal_quote = NULL, restored_rules = ?, "
@@ -248,24 +253,22 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         return RedirectResponse("/health", status_code=303)
 
     @app.get("/skills", response_class=HTMLResponse)
-    def skills(request: Request, scope: str = "kept") -> HTMLResponse:
+    def skills(request: Request, scope: str = "kept", japanese: bool = False) -> HTMLResponse:
         if scope not in inspect.SKILL_SCOPES:
             raise HTTPException(404, f"no scope {scope!r}")
         reload_skills(cfg)  # pick up hand edits to profile.toml too
         with connection() as conn:
-            stats = inspect.skill_stats(conn, cfg.profile, scope)
+            stats = inspect.skill_stats(conn, cfg.profile, scope, japanese=japanese)
         seen = {s["key"] for s in stats["skills"]}
         unseen = sorted(
             ((name, level) for name, level in cfg.profile.skills.items() if score.canonical_skill(name) not in seen),
             key=lambda item: (-item[1], item[0]),
         )
-        return render(request, "skills.html", title="Skills", scope=scope, unseen=unseen,
+        return render(request, "skills.html", title="Skills", scope=scope, japanese=japanese, unseen=unseen,
                       levels=profile_file.LEVELS, **stats)
 
-    @app.post("/skills/level", response_model=None)
-    def set_skill_level(
-        request: Request, name: str = Form(...), level: int = Form(...)
-    ) -> RedirectResponse | JSONResponse:
+    @app.post("/skills/level")
+    def set_skill_level(name: str = Form(...), level: int = Form(...)) -> JSONResponse:
         """Change a skill's level in profile.toml (0 removes it), then rescore every job with facts."""
         try:
             stored = profile_file.set_skill_level(cfg.profile_path, name, level)
@@ -274,16 +277,14 @@ def create_app(cfg: Config, gazetteer_: Gazetteer | None = None) -> FastAPI:
         reload_skills(cfg)
         with connection() as conn:
             rescored = score.rescore_all(conn, cfg, gazetteer())
-        if request.headers.get("x-requested-with") == "fetch":
-            return JSONResponse({"name": stored, "level": level, "rescored": rescored})
-        return RedirectResponse(request.headers.get("referer") or "/skills", status_code=303)
+        return JSONResponse({"name": stored, "level": level, "rescored": rescored})
 
     @app.get("/skills/{key}", response_class=HTMLResponse)
-    def skill_jobs(request: Request, key: str) -> HTMLResponse:
-        """The open kept jobs that ask for one skill."""
+    def skill_jobs(request: Request, key: str, japanese: bool = False) -> HTMLResponse:
+        """The open kept jobs that ask for one skill, and the Japanese ones too when asked."""
         key = score.canonical_skill(key)
         with connection() as conn:
-            ids = inspect.job_ids_with_skill(conn, key)
+            ids = inspect.job_ids_with_skill(conn, key, japanese=japanese)
             jobs = _jobs(conn, f"j.id IN ({','.join('?' * len(ids))})", tuple(ids), "j.score DESC") if ids else []
         return render(request, "list.html", title=f"Jobs asking for {key}", jobs=jobs)
 
@@ -344,6 +345,7 @@ def _tab_counts(conn: sqlite3.Connection) -> dict[str, int]:
     return {
         "New": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED} AND j.first_seen_at > ?", since),
         "All open": one(f"SELECT COUNT(*) FROM jobs j WHERE {_LISTED}"),
+        "Japanese": one(f"SELECT COUNT(*) FROM jobs j WHERE {_JAPANESE}"),
         "Removed": one("SELECT COUNT(*) FROM jobs WHERE stage IN ('code_removed', 'removed')"),
         "Applied": one(f"SELECT COUNT(*) FROM jobs j WHERE {_APPLIED}"),
         "Not interested": one("SELECT COUNT(*) FROM jobs WHERE status = 'not_interested'"),

@@ -331,6 +331,11 @@ def japanese_share(text: str) -> float:
     return len(_JAPANESE_CHAR.findall(text)) / letters
 
 
+def is_japanese_posting(text: str) -> bool:
+    """Written in Japanese, not just mentioning it. Such jobs are the backup list, so they queue last."""
+    return bool(text) and japanese_share(text) > JAPANESE_SHARE
+
+
 def code_rules(
     *, title: str, location: str, description_text: str, fields: dict[str, Any], gaz: Gazetteer
 ) -> Removal | None:
@@ -346,14 +351,12 @@ def code_rules(
         return Removal("contract", employment)
     if _CONTRACT_TITLE.search(title):
         return Removal("contract", title)
-
-    if description_text and japanese_share(description_text) > JAPANESE_SHARE:
-        return Removal("Japanese posting", description_text[:200])
     return None
 
 
 _TITLE_STRONG = re.compile(r"\b(react|java|javascript|front[- ]?end|full[- ]?stack|back[- ]?end)\b", re.IGNORECASE)
 _TITLE_WEAK = re.compile(r"\b(engineer|developer)\b", re.IGNORECASE)
+JAPANESE_POSTING_DROP = 10  # more than the highest English prescore (7), so every English job goes first
 
 
 def prescore(
@@ -365,8 +368,10 @@ def prescore(
     gaz: Gazetteer,
     profile: Profile,
     rates: dict[str, float],
+    description_text: str = "",
 ) -> float:
-    """Queue order for the model: 3 × location + 2 × title + 1 × pay at floor + 1 × posted this week."""
+    """Queue order for the model: 3 × location + 2 × title + 1 × pay at floor + 1 × posted this week,
+    minus JAPANESE_POSTING_DROP for a posting written in Japanese."""
     category = classify_location(location, gaz)
     location_hint = {"japan": 1.0, "asia": 1.0, "anywhere": 1.0, "remote": 0.5}.get(category, 0.0)
 
@@ -385,7 +390,8 @@ def prescore(
     age = days_since(posted_at)
     fresh_hint = 1.0 if age is not None and age <= 7 else 0.0
 
-    return 3 * location_hint + 2 * title_hint + pay_hint + fresh_hint
+    total = 3 * location_hint + 2 * title_hint + pay_hint + fresh_hint
+    return total - JAPANESE_POSTING_DROP if is_japanese_posting(description_text) else total
 
 
 def days_since(iso: str | None) -> float | None:
@@ -413,9 +419,6 @@ def fact_rules(
     if "Not open to Japan" not in skip and facts.get("open_to_japan_resident") == "no":
         return Removal("Not open to Japan", evidence.get("open_to_japan_resident", ""))
 
-    if "Requires Japanese" not in skip and facts.get("japanese") == "required":
-        return Removal("Requires Japanese", evidence.get("japanese", ""))
-
     if "Not payroll" not in skip and facts.get("employment") in ("contract", "freelance"):
         return Removal("Not payroll", evidence.get("employment", ""))
 
@@ -425,6 +428,13 @@ def fact_rules(
     if "Not software" not in skip and facts.get("is_software_job") == "no":
         return Removal("Not software", title)
     return None
+
+
+def needs_japanese(facts: dict[str, Any], restored: Iterable[str] = ()) -> bool:
+    """Japanese is mandatory, so the job goes to the Japanese list instead of the main one. Asked only
+    after fact_rules found nothing, so that list holds jobs that are targets except for the language.
+    "Requires Japanese" in restored is a job put back on the main list when this was still a removal."""
+    return "Requires Japanese" not in restored and facts.get("japanese") == "required"
 
 
 def can_commute(facts: dict[str, Any], profile: Profile, gaz: Gazetteer) -> bool:

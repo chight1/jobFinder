@@ -1,23 +1,26 @@
 {% extends "base.html" %}
 
 {% macro level_form(name, level) %}
-<form method="post" action="/skills/level" class="level">
-  <input type="hidden" name="name" value="{{ name }}">
-  <select name="level" aria-label="Your level in {{ name }}" data-level="{{ level or 0 }}">
+<span class="level">
+  <select aria-label="Your level in {{ name }}" data-name="{{ name }}" data-level="{{ level or 0 }}">
     {% for value in levels %}
     <option value="{{ value }}"{% if value == (level or 0) %} selected{% endif %}>{{ value or "—" }}</option>
     {% endfor %}
   </select>
-  <button>save</button>
-</form>
+</span>
 {% endmacro %}
 
 {% block body %}
 <header class="view-head">
   <h1>Skills <span class="count">{{ skills|length }} across {{ job_count }} jobs</span></h1>
+  {% set jp = "&japanese=1" if japanese else "" %}
   <nav class="tables" aria-label="Which jobs">
-    <a href="/skills?scope=kept"{% if scope == "kept" %} aria-current="page"{% endif %}>Kept, open jobs</a>
-    <a href="/skills?scope=all"{% if scope == "all" %} aria-current="page"{% endif %}>Every job the model read</a>
+    <a href="/skills?scope=kept{{ jp }}"{% if scope == "kept" %} aria-current="page"{% endif %}>Kept, open jobs</a>
+    <a href="/skills?scope=all{{ jp }}"{% if scope == "all" %} aria-current="page"{% endif %}>Every job the model read</a>
+  </nav>
+  <nav class="tables" aria-label="Japanese jobs">
+    <a href="/skills?scope={{ scope }}"{% if not japanese %} aria-current="page"{% endif %}>Without Japanese jobs</a>
+    <a href="/skills?scope={{ scope }}&japanese=1"{% if japanese %} aria-current="page"{% endif %}>With Japanese jobs</a>
   </nav>
 </header>
 
@@ -40,7 +43,7 @@
     <tbody>
     {% for s in skills %}
       <tr>
-        <td><a href="/skills/{{ s.key|urlencode }}">{{ s.name }}</a></td>
+        <td><a href="/skills/{{ s.key|urlencode }}{{ '?japanese=1' if japanese else '' }}">{{ s.name }}</a></td>
         <td>{{ s.jobs }}</td>
         <td>
           <span class="bar" style="--share: {{ (s.share * 100)|round(1) }}%"></span>

@@ -346,6 +346,7 @@ class Runner:
             prescore = rules.prescore(
                 title=summary.title, location=summary.location, posted_at=summary.posted_at,
                 fields=summary.fields, gaz=self.s.gaz, profile=self.s.cfg.profile, rates=self.s.cfg.currency,
+                description_text=to_text(summary.description),
             )
         with db.transaction(self.conn):
             sighting_id = self._insert_sighting(summary, url, source["id"], board_id, None)

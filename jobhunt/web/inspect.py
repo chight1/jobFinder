@@ -97,15 +97,24 @@ def job_detail(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
 # --- Skills page --------------------------------------------------------------------------
 
 # Which jobs the Skills page counts: the ones still in play, or every job the model has read.
+# Either way, jobs that require Japanese count only when asked for.
 SKILL_SCOPES = {
-    "kept": "stage = 'kept' AND closed_at IS NULL",
+    "kept": "stage IN ('kept', 'japanese') AND closed_at IS NULL",
     "all": "facts IS NOT NULL AND facts != '{}'",
 }
+_NOT_JAPANESE = "json_extract(facts, '$.japanese') IS NOT 'required'"
 
 
-def skill_stats(conn: sqlite3.Connection, profile: Profile, scope: str = "kept") -> dict[str, Any]:
+def _skill_jobs(scope: str, japanese: bool) -> str:
+    """The WHERE clause for a scope's jobs, with or without the ones that require Japanese."""
+    return SKILL_SCOPES[scope] if japanese else f"{SKILL_SCOPES[scope]} AND {_NOT_JAPANESE}"
+
+
+def skill_stats(
+    conn: sqlite3.Connection, profile: Profile, scope: str = "kept", *, japanese: bool = False
+) -> dict[str, Any]:
     """Every skill named across the scope's jobs, most common first, spellings merged ("JS" = "JavaScript")."""
-    jobs = conn.execute(f"SELECT id, facts, score FROM jobs WHERE {SKILL_SCOPES[scope]}").fetchall()
+    jobs = conn.execute(f"SELECT id, facts, score FROM jobs WHERE {_skill_jobs(scope, japanese)}").fetchall()
     stats: dict[str, dict[str, Any]] = {}
     for job in jobs:
         facts = db.loads(job["facts"], {}) or {}
@@ -137,18 +146,18 @@ def skill_stats(conn: sqlite3.Connection, profile: Profile, scope: str = "kept")
 
 
 def distinct_skill_count(conn: sqlite3.Connection) -> int:
-    """How many different skills the open kept jobs name, for the Skills tab."""
+    """How many different skills the open kept jobs name, for the Skills tab. Japanese jobs left out."""
     keys = set()
-    for row in conn.execute(f"SELECT facts FROM jobs WHERE {SKILL_SCOPES['kept']}"):
+    for row in conn.execute(f"SELECT facts FROM jobs WHERE {_skill_jobs('kept', False)}"):
         keys |= {canonical_skill(s) for s in (db.loads(row["facts"], {}) or {}).get("stack") or [] if s.strip()}
     return len(keys)
 
 
-def job_ids_with_skill(conn: sqlite3.Connection, key: str) -> list[int]:
-    """Open kept jobs whose stack names this skill under any spelling."""
+def job_ids_with_skill(conn: sqlite3.Connection, key: str, *, japanese: bool = False) -> list[int]:
+    """Open kept jobs whose stack names this skill under any spelling, with the Japanese ones when asked."""
     return [
         row["id"]
-        for row in conn.execute(f"SELECT id, facts FROM jobs WHERE {SKILL_SCOPES['kept']}")
+        for row in conn.execute(f"SELECT id, facts FROM jobs WHERE {_skill_jobs('kept', japanese)}")
         if key in {canonical_skill(s) for s in (db.loads(row["facts"], {}) or {}).get("stack") or []}
     ]
 

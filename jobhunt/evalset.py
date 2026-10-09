@@ -36,7 +36,7 @@ def export(conn: sqlite3.Connection, directory: Path, count: int) -> int:
     """
     rows = conn.execute(
         "SELECT j.id, s.source_id FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id "
-        "WHERE j.stage IN ('queued', 'kept', 'removed', 'extract_failed') AND length(s.description) >= ? "
+        "WHERE j.stage IN ('queued', 'kept', 'japanese', 'removed', 'extract_failed') AND length(s.description) >= ? "
         "ORDER BY j.id",
         (MIN_DESCRIPTION_CHARS,),
     ).fetchall()

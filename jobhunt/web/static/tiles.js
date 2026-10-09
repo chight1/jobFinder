@@ -1,10 +1,9 @@
 // The rating dots and status buttons on a job tile, without reloading the page, so you keep
-// your place in the list. Without this script both still work as plain form posts.
+// your place in the list.
 
 const post = async (form, field, value) => {
   const response = await fetch(form.action, {
     method: "POST",
-    headers: { "X-Requested-With": "fetch" },
     body: new URLSearchParams({ [field]: value }),
   });
   return response.ok ? response.json() : null;

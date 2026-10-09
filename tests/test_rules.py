@@ -60,10 +60,13 @@ def test_title_rule(title, removed, gaz):
     assert (removal is not None and removal.rule == "not software") is removed
 
 
-def test_japanese_posting_removed(gaz):
+def test_japanese_posting_queues_behind_every_english_one(gaz, profile):
     text = "私たちはソフトウェアエンジニアを募集しています。業務内容は開発です。" * 3 + " React TypeScript"
-    removal = rules.code_rules(title="Engineer", location="", description_text=text, fields={}, gaz=gaz)
-    assert removal and removal.rule == "Japanese posting"
+    assert rules.code_rules(title="Engineer", location="", description_text=text, fields={}, gaz=gaz) is None
+    best = {"title": "Senior React Engineer", "location": "Tokyo", "posted_at": None, "fields": {}, "gaz": gaz,
+            "profile": profile, "rates": {"USD": 1.0}}
+    assert rules.prescore(**best, description_text=text) < 0  # the lowest English prescore is 0
+    assert rules.prescore(**best, description_text="We build payments software.") == 5
 
 
 def test_english_posting_mentioning_japanese_kept(gaz):
@@ -125,7 +128,7 @@ FACTS = {
         ({}, None),
         ({"open_to_japan_resident": "no"}, "Not open to Japan"),
         ({"open_to_japan_resident": "unclear"}, None),
-        ({"japanese": "required"}, "Requires Japanese"),
+        ({"japanese": "required"}, None),  # not a removal: the job goes to the Japanese list
         ({"japanese": "plus"}, None),
         ({"employment": "contract"}, "Not payroll"),
         ({"employment": "dispatch"}, None),
@@ -145,8 +148,15 @@ def test_fact_rules(change, rule, gaz, profile):
 
 
 def test_restored_rule_never_removes_again(gaz, profile):
-    facts = FACTS | {"japanese": "required"}
-    assert rules.fact_rules(facts, title="Engineer", profile=profile, gaz=gaz, restored=["Requires Japanese"]) is None
+    facts = FACTS | {"employment": "contract"}
+    assert rules.fact_rules(facts, title="Engineer", profile=profile, gaz=gaz, restored=["Not payroll"]) is None
+
+
+def test_needs_japanese():
+    assert rules.needs_japanese(FACTS | {"japanese": "required"})
+    assert not rules.needs_japanese(FACTS | {"japanese": "plus"})
+    # restored to the main list back when requiring Japanese was a removal
+    assert not rules.needs_japanese(FACTS | {"japanese": "required"}, restored=["Requires Japanese"])
 
 
 def test_unclear_facts(gaz):

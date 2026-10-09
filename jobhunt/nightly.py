@@ -240,7 +240,7 @@ def _open_job_texts(cfg: Config) -> Iterator[tuple[int, str]]:
 
 
 def check_liveness(cfg: Config, *, deadline: float, run_started: datetime) -> int:
-    """GET each open kept job's link on sources with no whole list; close the ones that are gone."""
+    """GET each open kept or Japanese job's link on sources with no whole list; close the ones that are gone."""
     conn = db.connect(cfg.db_path)
     whole_list_sources = {
         r["id"] for r in conn.execute("SELECT id, collector, config FROM sources")
@@ -248,7 +248,7 @@ def check_liveness(cfg: Config, *, deadline: float, run_started: datetime) -> in
     } | {r["id"] for r in conn.execute("SELECT id FROM sources WHERE collector = 'hn'")}
     rows = conn.execute(
         "SELECT s.id, s.url, s.source_id, s.job_id FROM sightings s JOIN jobs j ON j.id = s.job_id "
-        "WHERE j.stage = 'kept' AND j.closed_at IS NULL AND s.closed_at IS NULL"
+        "WHERE j.stage IN ('kept', 'japanese') AND j.closed_at IS NULL AND s.closed_at IS NULL"
     ).fetchall()
     conn.close()
     by_source: dict[str, list[sqlite3.Row]] = defaultdict(list)

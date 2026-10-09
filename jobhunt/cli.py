@@ -202,7 +202,7 @@ def cmd_reextract(cfg: Config, args: argparse.Namespace) -> int:
     conn = _connect(cfg)
     count = conn.execute(
         "UPDATE jobs SET stage = 'queued', score = NULL WHERE first_seen_at >= ? "
-        "AND stage IN ('kept', 'removed', 'extract_failed')",
+        "AND stage IN ('kept', 'japanese', 'removed', 'extract_failed')",
         (since,),
     ).rowcount
     conn.close()

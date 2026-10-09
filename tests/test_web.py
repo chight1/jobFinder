@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
-from jobhunt import db
+from jobhunt import db, score
 from jobhunt.web.app import create_app
 from tests.conftest import ROOT
 
@@ -37,7 +39,8 @@ def client(cfg, conn, gaz):
     "path",
     ["/new", "/all", "/removed", "/applied", "/health", "/activity", "/activity/live",
      "/data", "/data?table=sightings&q=Acme", "/data?table=fetch_log", "/jobs/1",
-     "/rows?view=all&after=2000-01-01", "/skills", "/skills?scope=all", "/skills/go"],
+     "/rows?view=all&after=2000-01-01", "/skills", "/skills?scope=all", "/skills/go", "/japanese",
+     "/skills?scope=all&japanese=1", "/skills/go?japanese=1"],
 )
 def test_page_renders(client, path):
     response = client.get(path)
@@ -70,40 +73,51 @@ def test_skills_counted_and_shown_on_tiles(client):
     assert "Backend Engineer" in client.get("/skills/GO").text  # any spelling finds the jobs
 
 
+def test_a_job_requiring_japanese_has_its_own_tab(client, conn, cfg, gaz):
+    facts = {"japanese": "required", "stack": ["Go"], "evidence": {"japanese": "JLPT N1"}}
+    conn.execute("UPDATE jobs SET facts = ? WHERE id = 1", (json.dumps(facts),))
+    score.rescore_all(conn, cfg, gaz)
+    assert "Backend Engineer" in client.get("/japanese").text and "Backend Engineer" not in client.get("/all").text
+    assert ">Go</a>" not in client.get("/skills").text  # the skills page leaves Japanese jobs out
+    assert ">Go</a>" in client.get("/skills?japanese=1").text  # unless asked
+    assert "Backend Engineer" in client.get("/skills/go?japanese=1").text
+
+    # Japanese is checked last: a job another rule removes is just removed
+    conn.execute("UPDATE jobs SET facts = ? WHERE id = 1", (json.dumps(facts | {"employment": "contract"}),))
+    score.rescore_all(conn, cfg, gaz)
+    assert tuple(conn.execute("SELECT stage, removal_rule FROM jobs WHERE id = 1").fetchone()) == ("removed", "Not payroll")
+
+
 def test_rating_sets_and_toggles_off(client):
-    headers = {"X-Requested-With": "fetch"}
-    assert client.post("/jobs/1/rating", data={"rating": "green"}, headers=headers).json() == {"rating": "green"}
+    assert client.post("/jobs/1/rating", data={"rating": "green"}).json() == {"rating": "green"}
     assert 'data-rating="green"' in client.get("/all").text  # still listed, now marked
-    assert client.post("/jobs/1/rating", data={"rating": "green"}, headers=headers).json() == {"rating": None}
-    assert client.post("/jobs/1/rating", data={"rating": "purple"}, headers=headers).status_code == 400
+    assert client.post("/jobs/1/rating", data={"rating": "green"}).json() == {"rating": None}
+    assert client.post("/jobs/1/rating", data={"rating": "purple"}).status_code == 400
 
 
 def test_status_answers_the_tile_script_with_fresh_counts(client):
-    headers = {"X-Requested-With": "fetch"}
-    reply = client.post("/jobs/1/status", data={"status": "not_interested"}, headers=headers).json()
+    reply = client.post("/jobs/1/status", data={"status": "not_interested"}).json()
     assert reply["status"] == "not_interested" and reply["counts"]["All open"] == 0
     assert "Backend Engineer" not in client.get("/all").text
 
 
 def test_clearing_a_status_puts_the_job_back(client):
-    headers = {"X-Requested-With": "fetch"}
-    reply = client.post("/jobs/1/status", data={"status": "not_interested"}, headers=headers).json()
+    reply = client.post("/jobs/1/status", data={"status": "not_interested"}).json()
     assert reply["counts"]["Not interested"] == 1 and reply["counts"]["Applied"] == 0
     assert "Backend Engineer" not in client.get("/applied").text
     assert "clear status" in client.get("/not-interested").text
-    reply = client.post("/jobs/1/status", data={"status": "none"}, headers=headers).json()
+    reply = client.post("/jobs/1/status", data={"status": "none"}).json()
     assert reply["counts"]["All open"] == 1 and reply["counts"]["Not interested"] == 0
     assert "Backend Engineer" in client.get("/all").text
 
 
 def test_skill_levels_edit_the_profile_file(client, cfg):
-    headers = {"X-Requested-With": "fetch"}
-    reply = client.post("/skills/level", data={"name": "Go", "level": "2"}, headers=headers).json()
+    reply = client.post("/skills/level", data={"name": "Go", "level": "2"}).json()
     assert reply == {"name": "go", "level": 2, "rescored": 1}
     assert cfg.profile.skills["go"] == 2  # the running app sees it at once
 
-    client.post("/skills/level", data={"name": "JS", "level": "2"}, headers=headers)  # any spelling finds the entry
-    client.post("/skills/level", data={"name": "python", "level": "0"}, headers=headers)  # 0 removes it
+    client.post("/skills/level", data={"name": "JS", "level": "2"})  # any spelling finds the entry
+    client.post("/skills/level", data={"name": "python", "level": "0"})  # 0 removes it
     text = cfg.profile_path.read_text(encoding="utf-8")
     assert "javascript = 2  # keep this comment" in text
     assert "python" not in text and "go = 2" in text

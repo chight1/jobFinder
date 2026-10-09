@@ -295,17 +295,17 @@ def reason_line(facts: dict[str, Any], usd: float | None, profile: Profile) -> s
 
 
 def apply_facts(conn: sqlite3.Connection, job: sqlite3.Row, cfg: Config, gaz: Gazetteer) -> str:
-    """Run the fact rules, then score a kept job. Returns the job's new stage."""
-    from jobhunt.rules import fact_rules
+    """Run the fact rules, then score the job: kept, or "japanese" when only the language stands in
+    the way. Returns the job's new stage."""
+    from jobhunt.rules import fact_rules, needs_japanese
 
     facts = db.loads(job["facts"], {})
+    restored = db.loads(job["restored_rules"], [])
     title = conn.execute(
         "SELECT title FROM sightings WHERE id = ?", (job["primary_sighting_id"],)
     ).fetchone()["title"]
     if job["stage"] != "extract_failed":
-        removal = fact_rules(
-            facts, title=title, profile=cfg.profile, gaz=gaz, restored=db.loads(job["restored_rules"], [])
-        )
+        removal = fact_rules(facts, title=title, profile=cfg.profile, gaz=gaz, restored=restored)
         if removal:
             conn.execute(
                 "UPDATE jobs SET stage = 'removed', removal_rule = ?, removal_quote = ?, score = NULL "
@@ -313,7 +313,10 @@ def apply_facts(conn: sqlite3.Connection, job: sqlite3.Row, cfg: Config, gaz: Ga
                 (removal.rule, removal.quote, job["id"]),
             )
             return "removed"
-    stage = job["stage"] if job["stage"] == "extract_failed" else "kept"
+    if job["stage"] == "extract_failed":
+        stage = "extract_failed"
+    else:
+        stage = "japanese" if needs_japanese(facts, restored) else "kept"
     scored = score_job(facts, cfg, gaz, stage=stage)
     conn.execute(
         "UPDATE jobs SET stage = ?, removal_rule = NULL, removal_quote = NULL, score = ?, score_parts = ?, "
@@ -327,7 +330,7 @@ def apply_facts(conn: sqlite3.Connection, job: sqlite3.Row, cfg: Config, gaz: Ga
 def rescore_all(conn: sqlite3.Connection, cfg: Config, gaz: Gazetteer) -> int:
     """Re-apply fact rules and the formula to every job that has facts. No model calls."""
     jobs = conn.execute(
-        "SELECT * FROM jobs WHERE stage IN ('kept', 'removed', 'extract_failed') AND facts IS NOT NULL"
+        "SELECT * FROM jobs WHERE stage IN ('kept', 'japanese', 'removed', 'extract_failed') AND facts IS NOT NULL"
     ).fetchall()
     with db.transaction(conn):
         for job in jobs:

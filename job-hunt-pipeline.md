@@ -64,7 +64,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
 | settings | key, value | Last list visit, current crawl id |
 
-**Job stage** moves one way: new → code_removed, or queued → extracted → removed or kept. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
+**Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A failed extraction is extract_failed and stays visible. closed_at is separate from stage.
 
 **Job status** is the candidate's: none, apply, applied, interviewing, rejected, ghosted, not_interested.
 
@@ -179,7 +179,7 @@ These run on every new sighting, before any detail fetch when the list already h
 
 **Title.** Remove, rule "not software", only when the title has a word from a non-software list (sales, account executive, recruiter, marketing, legal, finance, customer success) and none from the software list (engineer, developer, programmer, SRE, DevOps, full stack, frontend, backend, QA, data engineer). SRE is site reliability engineer; QA is quality assurance.
 
-**Language.** Count characters in the hiragana, katakana and kanji ranges. Over 30% of the description's letters means the posting is written in Japanese: remove, rule "Japanese posting". An English posting that mentions Japanese is never removed here; the model judges it.
+Language never removes a job: jobs that require Japanese are the backup list (see Removal after extraction).
 
 **Employment type.** Remove, rule "contract", when the source's own structured field says contract, freelance or temporary (for example Lever's commitment field), or the title starts with "Contract" or "Freelance".
 
@@ -189,6 +189,7 @@ prescore = 3 × location hint + 2 × title hint + 1 × (listed pay at or above t
 
 - location hint: 1 for Japan, Osaka, Kansai, APAC, worldwide or anywhere; 0.5 for a bare "Remote"; 0 otherwise
 - title hint: 1 for React, Java, JavaScript, frontend, full stack or backend; 0.5 for engineer or developer; 0 otherwise
+- a posting written in Japanese (over 30% of the description's letters in the hiragana, katakana and kanji ranges) loses 10, more than any English posting can score, so the model reads it only when no English job is waiting
 
 ## Model stage
 
@@ -239,10 +240,11 @@ Once a job has facts, these rules run in code. Each removal stores the rule's na
 | Rule | Removes when |
 | --- | --- |
 | Not open to Japan | open_to_japan_resident is no |
-| Requires Japanese | japanese is required |
 | Not payroll | employment is contract or freelance |
 | Can't commute | work_mode is onsite or hybrid, office_city is not on the commutable list in profile.toml, and it is not a Tokyo hybrid role |
 | Not software | is_software_job is no |
+
+A job no rule removes is kept, unless japanese is required: then its stage is japanese, scored the same way and shown in the Japanese view. The language is checked last, so that view holds only jobs that are targets except for the language.
 
 - "unclear" never removes. The job stays and gets a "check" badge.
 - Dispatch to a client site is still a payroll job, so it stays; it is shown with a "dispatch" badge.
@@ -315,22 +317,23 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 | --- | --- |
 | New | jobs first seen since the last visit, by score |
 | All open | every kept, open job: the top 20 in comparator order, then the rest by score |
+| Japanese | open jobs that pass every rule but require Japanese, by score |
 | Removed | removed jobs, filterable by rule, each with its quote and a restore button |
 | Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
 | Not interested | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
 | Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
-| Skills | every skill the open jobs name, most common first, with your level beside each; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| Skills | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate and comparison results, and the description |
 
-The tabs for New, All open, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
+The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
 **Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and status buttons: apply, applied, interviewing, rejected, ghosted, not interested.
 
 **Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. A small script saves the rating without reloading the page.
 
-**Buttons** send a plain form post that sets the job's status and time. "Apply" also queues a packet. Any status takes the job out of New and All open.
+**Buttons** set the job's status and time through a small script, without reloading the page. "Apply" also queues a packet. Any status takes the job out of New and All open.
 
 **Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows in the Applied view.
 
