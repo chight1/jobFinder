@@ -1,0 +1,322 @@
+/* Dark, plain and dense: read everything at a glance. Color only where it means something.
+   Three text sizes, one corner radius, spacing in steps of 4px.
+
+   Contrast has a floor and a ceiling. Floor: secondary text 4.5:1 or more and edges 3:1 or more,
+   as WCAG asks. Ceiling: main text about 12:1, not white on black (16:1 and up), which glows and
+   blurs for eyes with astigmatism. So the background is dark gray, the text off-white, and every
+   color is a softened tone rather than a neon one. */
+:root {
+  color-scheme: dark;  /* native scrollbars and form parts match */
+  --bg: #151312;
+  --surface: #1f1c1a;
+  --raised: #2c2826;   /* buttons, fields and skill labels */
+  --text: #dcd8d4;     /* 12:1 on surface */
+  --muted: #a9a39d;    /* 6.8:1 */
+  --line: #75706b;     /* tile and control edges */
+  --line-soft: #35312e; /* rules inside tables and tiles */
+  --accent: #8fb4e3;
+  --top: #1a2333;
+  --flag: #e8908c;
+  --unicorn: #b7a6e6;
+  --check: #dcb35e;
+  --dispatch: #6cc1b4;
+  --rate-green: #6cbf86;
+  --rate-yellow: #d4b452;
+  --rate-red: #de7f7a;
+
+  --small: 12px;
+  --body: 14px;
+  --title: 16px;
+  --big: 22px;
+  --radius: 4px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--body)/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+[tabindex="-1"]:focus { outline: none; }  /* a heading focused for screen readers after moving pages */
+
+/* Read by screen readers, not shown: what the page says with color or shape alone. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- top bar and page heads --- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;  /* above the tiles, which are positioned so their rating dots can sit in the corner */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar a, .tables a {
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.topbar a:hover, .tables a:hover { color: var(--text); text-decoration: none; }
+.topbar a[aria-current="page"], .tables a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--text);
+}
+.tables { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.tab-count { margin-left: 4px; font-size: var(--small); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+
+.view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.view-head h1 { font-size: var(--big); margin: 8px 0; }
+.count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.empty, .muted { color: var(--muted); }
+
+section { margin: 16px 0 24px; }
+section h2 { font-size: var(--title); margin: 0 0 8px; }
+section h3 { font-size: var(--body); margin: 12px 0 4px; }
+
+/* --- job tiles --- */
+
+.job {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 16px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.job.top { background: var(--top); }  /* All open's 20 best by score */
+.job .body { min-width: 0; }
+.job p { margin: 4px 0; }
+
+.score {
+  align-self: start;
+  padding: 8px 0;
+  text-align: center;
+  font-size: var(--big);
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.job-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.job-title { min-width: 0; }
+.job h2 { font-size: var(--title); line-height: 1.35; margin: 0; }
+.job h2 a { color: var(--text); }
+.company-line { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0 !important; }
+.company { color: var(--muted); }
+.pay { font-weight: 700; font-variant-numeric: tabular-nums; }
+.pay.none { font-weight: 400; color: var(--muted); }
+
+/* One line of facts, always in the same order, set apart by spacing rather than labels. */
+.facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 8px !important; }
+.fact.over { color: var(--flag); font-weight: 600; }
+.level-bars { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: 1px; }
+.level-bars i { width: 6px; height: 12px; border: 1px solid var(--muted); border-radius: 1px; }
+.level-bars[data-level="3"] i.on { background: var(--rate-green); border-color: var(--rate-green); }
+.level-bars[data-level="2"] i.on { background: var(--rate-yellow); border-color: var(--rate-yellow); }
+.level-bars[data-level="1"] i.on { background: var(--rate-red); border-color: var(--rate-red); }
+
+.job-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-top: 8px;
+  font-size: var(--small);
+  color: var(--muted);
+}
+.job-foot a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); }
+.job-foot a:hover { color: var(--text); }
+.job-foot .details { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+.meta, .reason { color: var(--muted); }
+.removal, .status-line { margin-top: 8px !important; }
+.due { color: var(--flag); font-weight: 600; }
+.flag { color: var(--flag); font-weight: 600; }
+
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  font-size: var(--small);
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: 2px;
+}
+.badge.unicorn { color: var(--unicorn); }
+.badge.check { color: var(--check); }
+.badge.dispatch { color: var(--dispatch); }
+
+/* Skills on a card are labels, not buttons. One in your profile gets a thick edge in its level's
+   color, as on the Skills page: 3 green, 2 yellow, 1 red. */
+.skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px !important; }
+.chip {
+  padding: 0 8px;
+  font-size: var(--small);
+  line-height: 18px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+}
+a.chip:hover { text-decoration: underline; }
+.chip[data-level="3"] { border-color: var(--rate-green); }
+.chip[data-level="2"] { border-color: var(--rate-yellow); }
+.chip[data-level="1"] { border-color: var(--rate-red); }
+
+/* Rating: three dots in the card's top-right corner; a rated card gets a colored left edge. */
+.rate { display: flex; gap: 8px; padding-top: 4px; flex: none; }
+.dot {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--dot);
+  background: transparent;
+  opacity: 0.7;
+}
+.dot:hover { opacity: 1; border-color: var(--dot); background: transparent; }
+.dot[aria-pressed="true"] { background: var(--dot); opacity: 1; }
+.dot.inline { display: inline-block; vertical-align: middle; }  /* in text, as on the job page */
+.dot.green { --dot: var(--rate-green); }
+.dot.yellow { --dot: var(--rate-yellow); }
+.dot.red { --dot: var(--rate-red); }
+.job[data-rating="green"] { box-shadow: inset 4px 0 0 var(--rate-green); }
+.job[data-rating="yellow"] { box-shadow: inset 4px 0 0 var(--rate-yellow); }
+.job[data-rating="red"] { box-shadow: inset 4px 0 0 var(--rate-red); }
+
+.job.fresh { animation: fresh 4s ease-out; }
+@keyframes fresh {
+  from { box-shadow: 0 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .job.fresh { animation: none; border-color: var(--accent); }
+}
+
+/* --- controls: one height, one look --- */
+
+button, select, input {
+  font: inherit;
+  font-size: var(--body);
+  min-height: 28px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+button { cursor: pointer; }
+button:hover { background: color-mix(in srgb, var(--text) 10%, var(--raised)); border-color: var(--muted); }
+button:disabled { opacity: 0.5; cursor: default; }
+input { background: var(--bg); min-width: 0; }
+input::placeholder { color: var(--muted); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+
+/* One choice out of several, as one connected strip. The current one is inverted, so it reads at a glance. */
+.segmented { display: inline-flex; flex-wrap: wrap; }
+.segmented button { border-radius: 0; margin-left: -1px; }
+.segmented button:first-child { margin-left: 0; border-radius: var(--radius) 0 0 var(--radius); }
+.segmented button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.segmented button:hover { position: relative; }  /* its edge shows over the neighbor's */
+.segmented button[aria-pressed="true"] {
+  position: relative;
+  color: var(--bg);
+  background: var(--text);
+  border-color: var(--text);
+  font-weight: 600;
+}
+
+.search { display: flex; gap: 4px; }
+.add-skill { margin: 8px 0 12px; }
+
+/* Skill level pickers: 3 green, 2 yellow, 1 red; not in the profile stays plain. */
+.level select[data-level="3"] { --lvl: var(--rate-green); }
+.level select[data-level="2"] { --lvl: var(--rate-yellow); }
+.level select[data-level="1"] { --lvl: var(--rate-red); }
+.level select:not([data-level="0"]) {
+  border-color: var(--lvl);
+  background: color-mix(in srgb, var(--lvl) 22%, var(--surface));
+  font-weight: 600;
+}
+
+/* --- tables --- */
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; border-bottom-color: var(--line); white-space: nowrap; }
+tbody tr:hover td { background: color-mix(in srgb, var(--text) 5%, transparent); }
+tr.flagged td { background: color-mix(in srgb, var(--flag) 10%, transparent); }
+table.data { font-size: var(--small); }  /* Data and Activity: many columns */
+table.data td { max-width: 320px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+table.data td.detail { max-width: 480px; }
+.skills-table td:nth-child(3) { min-width: 140px; }
+.bar {
+  display: inline-block;
+  width: 80px;
+  height: 8px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: var(--radius);
+  background: linear-gradient(to right, var(--accent) var(--share), var(--line) var(--share));
+}
+
+.pager { display: flex; gap: 12px; justify-content: center; }
+
+/* --- lists, key-value pairs, text blocks --- */
+
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 4px 0; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.packet {
+  white-space: pre-wrap;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  font: var(--body)/1.5 ui-monospace, Consolas, monospace;
+}
+.log { font-size: var(--small); max-height: 420px; overflow: auto; }
+
+@media (max-width: 600px) {
+  .job { grid-template-columns: 1fr; }
+  .score { justify-self: start; padding: 4px 12px; }
+}

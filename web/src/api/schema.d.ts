@@ -66,6 +66,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data/{table}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Data
+         * @description One page of a table, read-only, newest rows first; q keeps rows with that text in any column.
+         */
+        get: operations["data_data__table__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packets/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Packet
+         * @description The application packet drafted for a job marked apply.
+         */
+        get: operations["packet_packets__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activity": {
         parameters: {
             query?: never;
@@ -429,9 +469,14 @@ export interface components {
             work_mode: string | null;
             /**
              * Place
-             * @description The office city, else the posting's location; empty when neither is given
+             * @description The office city; else, for a job that is not remote, the posting's location
              */
             place: string;
+            /**
+             * Pay Usd
+             * @description Yearly pay in dollars, e.g. '$66k–$100k'; null when not listed
+             */
+            pay_usd: string | null;
             /**
              * Pay
              * @description In the posting's currency and in dollars, e.g. '9,000,000 JPY/year ($60k)'
@@ -439,10 +484,23 @@ export interface components {
             pay: string;
             /** Primary Language */
             primary_language: string | null;
+            /**
+             * Language Level
+             * @description Your level in the primary language; 0 when not in your profile
+             */
+            language_level: number;
+            /**
+             * Years Asked
+             * @description Years of experience the posting asks for
+             */
+            years_asked: number | null;
+            /**
+             * Years Over
+             * @description It asks for more years than you have
+             */
+            years_over: boolean;
             /** Score */
             score: number | null;
-            /** Reason Line */
-            reason_line: string | null;
             /** Badges */
             badges: string[];
             /** Rating */
@@ -613,6 +671,16 @@ export interface components {
             ok: boolean;
             /** Error */
             error: string | null;
+        };
+        /** Packet */
+        Packet: {
+            /** Job Id */
+            job_id: number;
+            /**
+             * Text
+             * @description The application packet, as Markdown
+             */
+            text: string;
         };
         /** ProfileSkill */
         ProfileSkill: {
@@ -913,6 +981,34 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** TablePage */
+        TablePage: {
+            /** Table */
+            table: string;
+            /** Columns */
+            columns: string[];
+            /**
+             * Rows
+             * @description Cells as text, newest row first; long cells are cut short
+             */
+            rows: string[][];
+            /**
+             * Total
+             * @description Rows matching the search
+             */
+            total: number;
+            /** Page */
+            page: number;
+            /** Pages */
+            pages: number;
+            /**
+             * Tables
+             * @description Every table the page can show, with its row count
+             */
+            tables: {
+                [key: string]: number;
+            };
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1028,6 +1124,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_data__table__get: {
+        parameters: {
+            query?: {
+                q?: string;
+                page?: number;
+            };
+            header?: never;
+            path: {
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TablePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    packet_packets__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Packet"];
                 };
             };
             /** @description Validation Error */

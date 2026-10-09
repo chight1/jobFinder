@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
 import ActivityView from "./views/ActivityView.vue";
+import DataView from "./views/DataView.vue";
 import HealthView from "./views/HealthView.vue";
 import JobsView from "./views/JobsView.vue";
 import JobView from "./views/JobView.vue";
+import PacketView from "./views/PacketView.vue";
 import RemovedView from "./views/RemovedView.vue";
 import SkillsView from "./views/SkillsView.vue";
 
@@ -12,7 +14,8 @@ declare module "vue-router" {
   }
 }
 
-// Pages move here from the server-rendered site one at a time; App.vue links to the rest.
+const id = (route: { params: Record<string, unknown> }) => ({ id: Number(route.params.id) });
+
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -28,21 +31,18 @@ export const router = createRouter({
       props: { view: "not_interested" },
       meta: { title: "Not interested" },
     },
-    {
-      path: "/jobs/:id(\\d+)",
-      component: JobView,
-      props: (route) => ({ id: Number(route.params.id) }),
-      meta: { title: "Job" },
-    },
+    { path: "/jobs/:id(\\d+)", component: JobView, props: id, meta: { title: "Job" } },
+    { path: "/packets/:id(\\d+)", component: PacketView, props: id, meta: { title: "Packet" } },
     { path: "/skills", component: SkillsView, meta: { title: "Skills" } },
-    { path: "/health", component: HealthView, meta: { title: "Health" } },
-    { path: "/activity", component: ActivityView, meta: { title: "Activity" } },
     {
       path: "/skills/:key",
       component: JobsView,
       props: (route) => ({ view: "skill", skill: route.params.key, japanese: route.query.japanese === "1" }),
       meta: { title: "Jobs for a skill" },
     },
+    { path: "/health", component: HealthView, meta: { title: "Health" } },
+    { path: "/activity", component: ActivityView, meta: { title: "Activity" } },
+    { path: "/data", component: DataView, meta: { title: "Data" } },
   ],
 });
 

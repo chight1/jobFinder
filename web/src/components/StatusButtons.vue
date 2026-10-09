@@ -3,8 +3,8 @@ import { api, type JobCard, type StatusSaved } from "../api/client";
 import { STATUS_BUTTONS, type Status } from "../jobs";
 import { tabCounts } from "../tabCounts";
 
-// The status buttons on a tile. The page decides what a new status means for its list: the job
-// stays and shows it, or leaves.
+// A job's status as one segmented control: the current status is filled in, and clicking it again
+// clears it. The page decides what a new status means for its list: the job stays, or leaves.
 const props = defineProps<{ job: JobCard }>();
 const emit = defineEmits<{ saved: [reply: StatusSaved] }>();
 
@@ -24,14 +24,16 @@ async function set(status: Status) {
 </script>
 
 <template>
-  <div class="actions status">
-    <button
-      v-for="button in STATUS_BUTTONS"
-      :key="button.status"
-      type="button"
-      :disabled="job.status === button.status"
-      @click="set(button.status)"
-    >{{ button.label }}</button>
-    <button v-if="job.status !== 'none'" type="button" @click="set('none')">clear status</button>
+  <div class="actions">
+    <div class="segmented" role="group" aria-label="Status">
+      <button
+        v-for="button in STATUS_BUTTONS"
+        :key="button.status"
+        type="button"
+        :aria-pressed="job.status === button.status"
+        :title="button.hint"
+        @click="set(job.status === button.status ? 'none' : button.status)"
+      >{{ button.label }}</button>
+    </div>
   </div>
 </template>

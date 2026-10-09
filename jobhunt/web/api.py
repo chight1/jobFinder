@@ -1,5 +1,4 @@
-"""The JSON API for the Vue app in web/, mounted at /api. Pages move to the Vue app one at a time;
-until one has, its server-rendered version in app.py stays. Interactive docs at /api/docs.
+"""The JSON API behind the Vue app in web/, mounted at /api. Interactive docs at /api/docs.
 
 No `from __future__ import annotations` here: FastAPI reads the route signatures, and Conn is local to
 create_api, which string annotations could not reach."""
@@ -10,7 +9,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Callable, Iterator, Literal, get_args
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from jobhunt import db, profile_file, rules, score
@@ -109,11 +108,14 @@ class JobCard(BaseModel):
     url: str = Field(description="The primary sighting's link")
     company: str
     work_mode: str | None
-    place: str = Field(description="The office city, else the posting's location; empty when neither is given")
+    place: str = Field(description="The office city; else, for a job that is not remote, the posting's location")
+    pay_usd: str | None = Field(description="Yearly pay in dollars, e.g. '$66k–$100k'; null when not listed")
     pay: str = Field(description="In the posting's currency and in dollars, e.g. '9,000,000 JPY/year ($60k)'")
     primary_language: str | None
+    language_level: int = Field(description="Your level in the primary language; 0 when not in your profile")
+    years_asked: float | None = Field(description="Years of experience the posting asks for")
+    years_over: bool = Field(description="It asks for more years than you have")
     score: float | None
-    reason_line: str | None
     badges: list[str]
     rating: Rating | None
     status: Status
@@ -275,6 +277,21 @@ class Activity(BaseModel):
     log: list[str] = Field(description="The last lines of jobhunt.log")
 
 
+class TablePage(BaseModel):
+    table: str
+    columns: list[str]
+    rows: list[list[str]] = Field(description="Cells as text, newest row first; long cells are cut short")
+    total: int = Field(description="Rows matching the search")
+    page: int
+    pages: int
+    tables: dict[str, int] = Field(description="Every table the page can show, with its row count")
+
+
+class Packet(BaseModel):
+    job_id: int
+    text: str = Field(description="The application packet, as Markdown")
+
+
 class StatusChange(BaseModel):
     status: Status
 
@@ -398,6 +415,13 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
 
     Conn = Annotated[sqlite3.Connection, Depends(connection)]
 
+    def pay_range_usd(facts: dict[str, Any]) -> str | None:
+        """Yearly pay in dollars, rounded to thousands: '$66k–$100k', or '$73k' for one figure."""
+        ends = [score.annual_usd(v, None, facts.get("pay_currency"), facts.get("pay_period"), cfg.currency)
+                for v in (facts.get("pay_min"), facts.get("pay_max"))]
+        thousands = sorted({round(v / 1000) for v in ends if v is not None})
+        return "–".join(f"${k:,}k" for k in thousands) or None
+
     def cards(conn: sqlite3.Connection, where: str, params: list[Any], order: str) -> list[JobCard]:
         """Tiles for the jobs matching where, with other sightings and probable duplicates attached."""
         rows = conn.execute(f"{_JOB_COLUMNS} WHERE {where} ORDER BY {order}", params).fetchall()
@@ -423,17 +447,22 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         facts = db.loads(row["facts"], {}) or {}
         usd = score.annual_usd(facts.get("pay_min"), facts.get("pay_max"), facts.get("pay_currency"),
                                facts.get("pay_period"), cfg.currency)
+        years = facts.get("years_required")
         return JobCard(
             id=row["id"],
             title=row["title"],
             url=row["url"],
             company=row["company_raw"],
             work_mode=facts.get("work_mode"),
-            place=facts.get("office_city") or row["location_raw"] or "",
+            # A remote job's raw location is often a list of regions or a whole line of the posting.
+            place=facts.get("office_city") or ("" if facts.get("work_mode") == "remote" else row["location_raw"]),
+            pay_usd=pay_range_usd(facts),
             pay=score.pay_text(facts, usd),
             primary_language=facts.get("primary_language"),
+            language_level=score.skill_level(facts.get("primary_language"), cfg.profile) or 0,
+            years_asked=years,
+            years_over=years is not None and years > cfg.profile.years_experience,
             score=row["score"],
-            reason_line=row["reason_line"],
             badges=db.loads(row["badges"], []),
             rating=row["rating"],
             status=row["status"],
@@ -526,6 +555,25 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
                    for p in detail["pairs"]],
             description=detail["description"],
         )
+
+    # --- data and packets ---
+
+    @api.get("/data/{table}")
+    def data(table: str, conn: Conn, q: str = "", page: Annotated[int, Query(ge=1)] = 1) -> TablePage:
+        """One page of a table, read-only, newest rows first; q keeps rows with that text in any column."""
+        try:
+            contents = inspect.table_page(conn, table, q.strip(), page)
+        except KeyError:
+            raise HTTPException(404, f"no table named {table!r}") from None
+        return TablePage(table=table, page=page, tables=inspect.table_counts(conn), **contents)
+
+    @api.get("/packets/{job_id}")
+    def packet(job_id: int) -> Packet:
+        """The application packet drafted for a job marked apply."""
+        path = cfg.packets_dir / f"{job_id}.md"
+        if not path.exists():
+            raise HTTPException(404, "no packet for this job yet")
+        return Packet(job_id=job_id, text=path.read_text(encoding="utf-8"))
 
     # --- activity ---
 

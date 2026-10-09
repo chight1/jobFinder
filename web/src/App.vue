@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { watch } from "vue";
+import { nextTick, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
+import { announcement } from "./announce";
 import { refreshTabCounts, tabCounts } from "./tabCounts";
 
-// The top bar. A tab with `to` is a page of this app; the others are still server-rendered pages,
-// reached with a plain link until they move here.
-const tabs: { name: string; to?: string; href?: string }[] = [
+// The top bar; a tab with a count shows how many records it holds.
+const tabs: { name: string; to: string }[] = [
   { name: "New", to: "/new" },
   { name: "All open", to: "/all" },
   { name: "Japanese", to: "/japanese" },
@@ -15,26 +15,34 @@ const tabs: { name: string; to?: string; href?: string }[] = [
   { name: "Skills", to: "/skills" },
   { name: "Health", to: "/health" },
   { name: "Activity", to: "/activity" },
-  { name: "Data", href: "/data" },
+  { name: "Data", to: "/data" },
 ];
 
 const route = useRoute();
 watch(() => route.fullPath, refreshTabCounts, { immediate: true });
+
+// Moving to another page changes nothing a screen reader notices, so focus goes to the new page's
+// heading, which it then reads. Not on the first load: the browser handles that.
+watch(
+  () => route.path,
+  async () => {
+    await nextTick();
+    const target = document.querySelector<HTMLElement>("main h1") ?? document.querySelector<HTMLElement>("main");
+    target?.setAttribute("tabindex", "-1");
+    target?.focus({ preventScroll: true });
+  },
+);
 </script>
 
 <template>
-  <nav>
-    <template v-for="tab in tabs" :key="tab.name">
-      <RouterLink v-if="tab.to" :to="tab.to">
-        {{ tab.name }} <span v-if="tab.name in tabCounts" class="tab-count">{{ tabCounts[tab.name] }}</span>
-      </RouterLink>
-      <a v-else :href="tab.href">
-        {{ tab.name }} <span v-if="tab.name in tabCounts" class="tab-count">{{ tabCounts[tab.name] }}</span>
-      </a>
-    </template>
+  <nav class="topbar" aria-label="Pages">
+    <RouterLink v-for="tab in tabs" :key="tab.name" :to="tab.to">
+      {{ tab.name }} <span v-if="tab.name in tabCounts" class="tab-count">{{ tabCounts[tab.name] }}</span>
+    </RouterLink>
   </nav>
   <main>
     <!-- Keyed by path, so moving between lists starts each page fresh; a query change (a filter) does not. -->
     <RouterView :key="route.path" />
   </main>
+  <div class="sr-only" aria-live="polite">{{ announcement }}</div>
 </template>

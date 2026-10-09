@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from "vue";
+import { announce } from "../announce";
 import { api, type JobCard, type JobList, type StatusSaved } from "../api/client";
 import JobTile from "../components/JobTile.vue";
 import StatusButtons from "../components/StatusButtons.vue";
@@ -58,7 +59,10 @@ async function poll() {
       shown.jobs = insertByScore(shown.jobs, arrived);
       shown.now = data.now;
       for (const job of arrived) fresh.value.add(job.id);
-      if (arrived.length) await refreshTabCounts();
+      if (arrived.length) {
+        announce(`${arrived.length} new job${arrived.length === 1 ? "" : "s"}`);
+        await refreshTabCounts();
+      }
     }
   } catch {
     // The server is down or restarting; the next check tries again.
@@ -77,12 +81,14 @@ function statusSaved(job: JobCard, reply: StatusSaved) {
   } else {
     list.value.jobs = list.value.jobs.filter((other) => other.id !== job.id);
   }
+  announce(reply.status === "none" ? `Status cleared: ${job.title}` : `${job.title}: ${statusName(reply.status)}`);
 }
 
 async function markSeen() {
   const { response } = await api.POST("/seen");
   if (!response.ok || !list.value) return;
   list.value.jobs = [];
+  announce("Marked all seen");
   await refreshTabCounts();
 }
 </script>

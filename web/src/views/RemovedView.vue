@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { announce } from "../announce";
 import { api, type JobCard, type JobList } from "../api/client";
 import JobTile from "../components/JobTile.vue";
 import { tabCounts } from "../tabCounts";
@@ -36,6 +37,7 @@ async function restore(job: JobCard) {
     if (data && list.value) {
       list.value.jobs = list.value.jobs.filter((other) => other.id !== job.id);
       tabCounts.value = data.counts;
+      announce(`Restored ${job.title}`);
     }
   } catch {
     // The server is down or restarting; clicking again retries.

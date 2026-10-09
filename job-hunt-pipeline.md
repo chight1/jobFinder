@@ -34,7 +34,7 @@ Python 3.12, one package named jobhunt, one SQLite file and one command-line ent
 | dedupe | Merges sightings into jobs | datasketch (MinHash) |
 | llm | Talks to the local model and validates its output | httpx, pydantic |
 | score | Formula scoring | standard library |
-| web | The list page: a JSON API and the Vue app it serves (pages still moving from Jinja2 templates) | FastAPI with Pydantic models, uvicorn; Vue 3, TypeScript, Vite, Vue Router, openapi-fetch, Vitest |
+| web | The list page: a JSON API and the Vue app it serves | FastAPI with Pydantic models, uvicorn; Vue 3, TypeScript, Vite, Vue Router, openapi-fetch, Vitest |
 | packets | Application packets | llm |
 
 **Files on disk**
@@ -304,30 +304,30 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 ## The list page
 
-"jobhunt serve" runs a local web page at localhost:8765. The pages are moving one at a time from server-rendered Jinja2 templates to a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`) and served under /app/. The Vue pages read a JSON API under /api: FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. Either way the page reads the database directly, so it is always current. New and All open add jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Views marked (Vue) have moved; the rest are still server-rendered.
-
+"jobhunt serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. New and All open add jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to.
 | View | Shows |
 | --- | --- |
-| New (Vue) | jobs first seen since the last visit, by score |
-| All open (Vue) | every kept, open job, by score; the top 20 tinted blue |
-| Japanese (Vue) | open jobs that pass every rule but require Japanese, by score |
-| Removed (Vue) | removed jobs, filterable by rule (kept in the URL), each with its quote and a restore button |
-| Applied (Vue) | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
-| Not interested (Vue) | jobs marked not interested, newest first; "clear status" (on any job with a status) puts one back in the lists |
-| Skill's jobs (Vue) | the open jobs asking for one skill, from a skill chip or the Skills table |
-| Health (Vue) | per-source status (see Health and errors), and the last backup with a "Back up now" button |
-| Activity (Vue) | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
-| Skills (Vue) | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; the filters are in the URL; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| New | jobs first seen since the last visit, by score |
+| All open | every kept, open job, by score; the top 20 tinted blue |
+| Japanese | open jobs that pass every rule but require Japanese, by score |
+| Removed | removed jobs, filterable by rule, each with its quote and a restore button |
+| Applied | jobs marked to apply, applied, interviewing, rejected or ghosted, newest first, with follow-up dates |
+| Not interested | jobs marked not interested, newest first; clicking a job's current status again clears it and puts the job back in the lists |
+| Skill's jobs | the open jobs asking for one skill, from a skill chip or the Skills table |
+| Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
+| Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
+| Skills | every skill the open jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
-| Job (#id) (Vue) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
+| Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
+| Packet (#id) | the application packet drafted for a job marked apply |
 
 The tabs for New, All open, Japanese, Removed, Applied and Not interested show how many jobs each holds. Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
 
-**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and status buttons: apply, applied, interviewing, rejected, ghosted, not interested.
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and the status as one segmented control: to apply, applied, interviewing, rejected, ghosted, not interested. The current status is filled in; clicking it again clears it.
 
-**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. A small script saves the rating without reloading the page.
+**Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status: a rated job stays in New and All open, with a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page.
 
-**Buttons** set the job's status and time through a small script, without reloading the page. "Apply" also queues a packet. Any status takes the job out of New and All open.
+**Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. Any status takes the job out of New and All open.
 
 **Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows in the Applied view.
 

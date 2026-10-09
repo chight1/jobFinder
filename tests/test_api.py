@@ -24,9 +24,20 @@ def test_every_list_answers(client, view):
 
 def test_a_job_as_a_tile(client):
     job = client.get("/api/jobs", params={"view": "all"}).json()["jobs"][0]
-    assert (job["title"], job["company"], job["place"], job["status"]) == ("Backend Engineer", "Acme", "Tokyo", "none")
+    assert (job["title"], job["company"], job["status"]) == ("Backend Engineer", "Acme", "none")
+    assert job["place"] == ""  # remote with no office city: the raw location is left out
     assert job["badges"] == ["unicorn"] and job["work_mode"] == "remote"
     assert job["skills"] == [{"name": "Go", "key": "go", "level": 0}]  # Go is not in the test profile
+
+
+def test_a_card_has_pay_in_dollars_and_years_against_yours(client, conn):
+    conn.execute("""UPDATE jobs SET facts = json_set(facts, '$.pay_min', 66000, '$.pay_max', 100000,
+                    '$.pay_currency', 'USD', '$.pay_period', 'year', '$.years_required', 6,
+                    '$.primary_language', 'JavaScript') WHERE id = 1""")
+    job = client.get("/api/jobs", params={"view": "all"}).json()["jobs"][0]
+    assert job["pay_usd"] == "$66k–$100k"
+    assert job["years_asked"] == 6 and job["years_over"]  # the test profile has 5 years
+    assert job["language_level"] == 3
 
 
 def test_a_live_list_gets_only_jobs_listed_since(client):
@@ -200,6 +211,25 @@ def test_a_long_run_is_not_stale_while_its_worker_reports(client, conn):
 
     conn.execute("UPDATE activity SET since = '2000-01-01T00:00:00+00:00'")
     assert all(w["stale"] for w in client.get("/api/activity").json()["running"])  # nothing reported in years
+
+
+# --- data and packets ---
+
+
+def test_data_pages_any_table(client):
+    page = client.get("/api/data/jobs").json()
+    assert page["total"] == 1 and "title_norm" in page["columns"] and page["tables"]["jobs"] == 1
+    assert client.get("/api/data/sightings", params={"q": "Acme"}).json()["total"] == 1
+    assert client.get("/api/data/sightings", params={"q": "Nobody"}).json()["rows"] == []
+    assert client.get("/api/data/sqlite_master").status_code == 404  # only the listed tables
+    assert client.get("/api/data/jobs", params={"page": 0}).status_code == 422
+
+
+def test_packet(client, cfg):
+    assert client.get("/api/packets/1").status_code == 404
+    cfg.packets_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.packets_dir / "1.md").write_text("# Packet for #1", encoding="utf-8")
+    assert client.get("/api/packets/1").json() == {"job_id": 1, "text": "# Packet for #1"}
 
 
 # --- the rest ---

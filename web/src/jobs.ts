@@ -5,10 +5,9 @@ export type Rating = NonNullable<JobCard["rating"]>;
 
 export const RATINGS: Rating[] = ["green", "yellow", "red"];
 
-// The status buttons on a tile, in order. "apply" only drafts a packet, so its button says so,
-// while the job itself reads as one still to apply to.
-export const STATUS_BUTTONS: { status: Exclude<Status, "none">; label: string }[] = [
-  { status: "apply", label: "draft packet" },
+// The status control on a tile, in order. Setting "to apply" also has the model draft a packet.
+export const STATUS_BUTTONS: { status: Exclude<Status, "none">; label: string; hint?: string }[] = [
+  { status: "apply", label: "to apply", hint: "also drafts an application packet" },
   { status: "applied", label: "applied" },
   { status: "interviewing", label: "interviewing" },
   { status: "rejected", label: "rejected" },
