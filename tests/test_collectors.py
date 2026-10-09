@@ -231,6 +231,12 @@ def test_feed_title_with_the_company_after_at():
     assert (summary.title, summary.company) == ("Head of Data", "Chess.com")
 
 
+def test_a_feed_can_send_every_entry_to_its_job_page():
+    entry = {"title": "Machine Learning Engineer at Twilio", "link": "https://example.com/1", "summary": "x" * 600}
+    assert rss._summary(entry, {}).description == "x" * 600  # long enough: no job page
+    assert rss._summary(entry, {"fetch_job_page": True}).description is None  # the runner fetches the page
+
+
 def test_feed_title_with_a_prefix_cut_off():
     entry = {"title": "Remote Backend Engineer (Mid/Senior), Maps at Wheely", "link": "https://example.com/1",
              "company": "Wheely"}

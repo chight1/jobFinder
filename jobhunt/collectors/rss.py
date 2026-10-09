@@ -8,6 +8,8 @@ Source config:
     company_field   entry key holding the company (default "author")
     location_field  entry key holding the location (default "location", then "region")
     location_in_text  true when the entry text ends with a "Place · pay" line (startup.jobs)
+    fetch_job_page  true when entries lack something only the job page has (Remote First Jobs: the
+                    location): every new entry that passes the title rules gets its job page
 """
 
 from __future__ import annotations
@@ -88,5 +90,5 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
         company=str(company),
         location=str(location),
         posted_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", published) if published else None,
-        description=text if len(to_text(text)) >= SHORT_TEXT_CHARS else None,
+        description=text if len(to_text(text)) >= SHORT_TEXT_CHARS and not config.get("fetch_job_page") else None,
     )
