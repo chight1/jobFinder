@@ -64,6 +64,18 @@ def _removal_options(conn: sqlite3.Connection) -> tuple[Option, ...]:
     return (kept, *(Option(rule, rule, f"{REMOVED} AND j.removal_rule = ?", (rule,), default=False) for rule in rules))
 
 
+def _source_options(conn: sqlite3.Connection) -> tuple[Option, ...]:
+    """One option per source that has given us a job. A job matches every source it was seen on, so
+    turning one source off hides only the jobs seen nowhere else."""
+    sources = conn.execute(
+        "SELECT DISTINCT src.id, src.name FROM sightings s JOIN sources src ON src.id = s.source_id ORDER BY src.name"
+    ).fetchall()
+    return tuple(
+        Option(row[0], row[1], "EXISTS (SELECT 1 FROM sightings s WHERE s.job_id = j.id AND s.source_id = ?)", (row[0],))
+        for row in sources
+    )
+
+
 FILTERS: tuple[Filter, ...] = (
     Filter("rating", "Rating", (
         Option("green", "Green", "j.rating = 'green'"),
@@ -79,6 +91,7 @@ FILTERS: tuple[Filter, ...] = (
         Option(key, label, "j.status = ?", (key,), default=key == "none") for key, label in STATUS_LABELS.items()
     )),
     Filter("removed", "Removed", _removal_options),
+    Filter("source", "Source", _source_options),
 )
 
 # The query parameters, one list per filter: None when the query leaves the filter out.

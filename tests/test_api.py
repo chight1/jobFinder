@@ -26,7 +26,7 @@ def test_a_plain_table_is_the_open_list(client, conn):
     assert [j["title"] for j in reply["jobs"]] == ["Backend Engineer"] and reply["total"] == 1
     on = {f["key"]: [o["key"] for o in f["options"] if o["on"]] for f in reply["filters"]}
     assert on == {"rating": ["green", "yellow", "red", "grey"], "japanese": ["not_japanese"], "status": ["none"],
-                  "removed": ["kept"]}
+                  "removed": ["kept"], "source": ["tokyodev"]}
 
 
 def test_options_within_a_filter_add_up_and_filters_narrow(client, conn):
@@ -36,6 +36,14 @@ def test_options_within_a_filter_add_up_and_filters_narrow(client, conn):
     assert titles(client, rating=["red"], status=["applied"]) == []  # every filter must pass
     assert titles(client, rating=[""]) == []  # every option off
     assert titles(client, rating=["purple"]) == []  # an unknown option matches nothing
+
+
+def test_the_source_filter_hides_jobs_seen_only_on_sources_turned_off(client, conn):
+    assert titles(client, source=["tokyodev"]) == ["Backend Engineer"]
+    assert titles(client, source=["hn"]) == []
+    conn.execute("INSERT INTO sightings (source_id, external_id, url, title, first_seen_at, last_seen_at, job_id) "
+                 "VALUES ('hn', 'y', 'https://example.com/2', 'Backend Engineer', '2026-10-01', '2026-10-01', 1)")
+    assert titles(client, source=["hn"]) == ["Backend Engineer"]  # seen on HN too
 
 
 def test_a_job_as_a_tile(client):

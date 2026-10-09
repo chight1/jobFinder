@@ -1050,6 +1050,7 @@ export interface operations {
                 japanese?: string[] | null;
                 status?: string[] | null;
                 removed?: string[] | null;
+                source?: string[] | null;
                 /** @description Only the jobs asking for this skill, under any spelling */
                 skill?: string | null;
                 /** @description An earlier reply's `now`: only the jobs listed since */
