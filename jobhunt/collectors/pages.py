@@ -153,10 +153,13 @@ def parse_job_page(html: str, summary: Summary, selectors: dict[str, str]) -> Su
 _PERIODS = {"YEAR": "year", "MONTH": "month", "HOUR": "hour"}
 
 
+_COMMENT_WRAPPER = re.compile(r"^\s*(?://\s*)?<!--|(?://\s*)?-->\s*$")  # old-browser hiding (GaijinPot)
+
+
 def find_job_posting(tree: LexborHTMLParser) -> dict[str, Any] | None:
     for script in tree.css('script[type="application/ld+json"]'):
         try:
-            data = json.loads(script.text() or "")
+            data = json.loads(_COMMENT_WRAPPER.sub("", script.text() or ""))
         except json.JSONDecodeError:
             continue
         for item in _walk(data):

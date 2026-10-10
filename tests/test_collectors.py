@@ -156,6 +156,13 @@ def test_job_posting_json_ld():
     assert not summary.from_link
 
 
+def test_job_posting_json_ld_inside_comment_markers():
+    ld = {"@type": "JobPosting", "title": "Frontend Engineer", "hiringOrganization": {"name": "GPlus Media K.K."}}
+    html = f'<html><script type="application/ld+json">\n    //<!--\n    {json.dumps(ld)}\n    //-->\n</script></html>'
+    summary = pages.parse_job_page(html, Summary("1", "https://example.com/jobs/1", "link text", from_link=True), {})
+    assert summary.title == "Frontend Engineer" and summary.company == "GPlus Media K.K."
+
+
 def test_hn_comment_first_line():
     summary = hn._summary({"id": 5, "text": "Acme | Backend Engineer | Tokyo | REMOTE<p>We build...</p>"},
                           "2026-10-01T15:00:00Z")
