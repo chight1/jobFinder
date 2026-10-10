@@ -30,6 +30,7 @@ class Place:
     kind: PlaceKind
 
 
+# In ISO 3166-2 order, so prefecture N is the code JP-N.
 JAPAN_PREFECTURES = {
     "Hokkaido": "北海道", "Aomori": "青森", "Iwate": "岩手", "Miyagi": "宮城", "Akita": "秋田",
     "Yamagata": "山形", "Fukushima": "福島", "Ibaraki": "茨城", "Tochigi": "栃木", "Gunma": "群馬",

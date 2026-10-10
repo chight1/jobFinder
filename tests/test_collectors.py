@@ -163,6 +163,15 @@ def test_job_posting_json_ld_inside_comment_markers():
     assert summary.title == "Frontend Engineer" and summary.company == "GPlus Media K.K."
 
 
+@pytest.mark.parametrize(("region", "place"), [("JP-13", "Ebisu, Tokyo, JP"), ("JP-01", "Ebisu, Hokkaido, JP"),
+                                               ("JP-47", "Ebisu, Okinawa, JP"), ("Kanagawa", "Ebisu, Kanagawa, JP")])
+def test_job_posting_prefecture_codes_become_names(region, place):
+    ld = {"@type": "JobPosting", "title": "Engineer",
+          "jobLocation": {"address": {"addressLocality": "Ebisu", "addressRegion": region, "addressCountry": "JP"}}}
+    html = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    assert pages.parse_job_page(html, Summary("1", "https://example.com/1", "x"), {}).location == place
+
+
 def test_hn_comment_first_line():
     summary = hn._summary({"id": 5, "text": "Acme | Backend Engineer | Tokyo | REMOTE<p>We build...</p>"},
                           "2026-10-01T15:00:00Z")

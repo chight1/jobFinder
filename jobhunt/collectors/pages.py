@@ -26,6 +26,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from selectolax.lexbor import LexborHTMLParser
 
 from jobhunt.collectors import BoardGone, Context, Listing, PostingGone, Summary, join_place
+from jobhunt.rules import JAPAN_PREFECTURES
 from jobhunt.text import tidy
 
 DEFAULT_MAX_PAGES = 10
@@ -207,6 +208,19 @@ def _name(value: Any) -> str:
     return value.get("name", "") if isinstance(value, dict) else str(value or "")
 
 
+_PREFECTURE_CODE = re.compile(r"JP-(\d\d)")
+_PREFECTURE_NAMES = list(JAPAN_PREFECTURES)
+
+
+def _region(value: Any) -> str:
+    """A region, with an ISO prefecture code (GaijinPot's "JP-13") turned into its name ("Tokyo")."""
+    region = _name(value)
+    code = _PREFECTURE_CODE.fullmatch(region.strip())
+    if code and 1 <= int(code[1]) <= len(_PREFECTURE_NAMES):
+        return _PREFECTURE_NAMES[int(code[1]) - 1]
+    return region
+
+
 def _location(posting: dict[str, Any]) -> str:
     places = []
     for loc in _as_list(posting.get("jobLocation")):
@@ -214,7 +228,7 @@ def _location(posting: dict[str, Any]) -> str:
         if isinstance(address, str):
             places.append(address)
         else:
-            places.append(join_place(address.get("addressLocality"), address.get("addressRegion"),
+            places.append(join_place(address.get("addressLocality"), _region(address.get("addressRegion")),
                                      _name(address.get("addressCountry"))))
     for requirement in _as_list(posting.get("applicantLocationRequirements")):
         places.append(_name(requirement))
