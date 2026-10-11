@@ -94,6 +94,11 @@ _PART_BREAK = re.compile(r"[,;/|()\[\]·•]|\s[-–—]\s")
 _EDGE_PUNCTUATION = ".,;:!?()[]{}|/-–—\"'“”‘’"  # not + or #: "C++", "C#"
 
 
+def _cjk_rank(place: Place) -> tuple[bool, int]:
+    """Which city a shared kanji name means: a Japanese one first, then the larger."""
+    return place.country == "JP", place.population
+
+
 class Gazetteer:
     """Matches place names in location text against GeoNames cities, countries and regions."""
 
@@ -134,13 +139,19 @@ class Gazetteer:
             if existing is None or existing.country != "JP":
                 self._by_name[name.lower()] = prefecture
             if kanji:
-                self._cjk.setdefault(kanji, prefecture)
+                self._add_japanese_cjk(kanji, prefecture)
         for name, kanji in JAPAN_REGIONS.items():
             region = self._japan if name == "Japan" else Place(name, "JP", "", 0, "region")
             self._by_name[name.lower()] = region
             if kanji:
-                self._cjk.setdefault(kanji, region)
+                self._add_japanese_cjk(kanji, region)
         self._codes["JP"] = self._japan
+
+    def _add_japanese_cjk(self, name: str, place: Place) -> None:
+        """A Japanese city of the same name stays; a city elsewhere gives way."""
+        current = self._cjk.get(name)
+        if current is None or current.country != "JP":
+            self._cjk[name] = place
 
     def _add_outside_regions(self) -> None:
         for name in OUTSIDE_REGIONS:
@@ -181,12 +192,13 @@ class Gazetteer:
                 places.append(city)
                 if cols[2] and cols[2] != cols[1]:
                     places.append(Place(cols[2], city.country, city.admin1, city.population, "city"))
-                if country == "JP":
-                    for alt in cols[3].split(","):
-                        if _CJK.search(alt):
-                            current = cjk.get(alt)
-                            if current is None or city.population > current.population:
-                                cjk[alt] = city
+                # Kanji and hanzi names, so "上海" or "深圳" is placed as surely as "大阪". A name two
+                # countries share goes to the Japanese city; a one-character name only to a Japanese one.
+                for alt in cols[3].split(","):
+                    if _CJK.search(alt) and (country == "JP" or len(alt) > 1):
+                        current = cjk.get(alt)
+                        if current is None or _cjk_rank(city) > _cjk_rank(current):
+                            cjk[alt] = city
 
         return cls(places, cjk, codes)
 
@@ -208,7 +220,10 @@ class Gazetteer:
         text = nfkc(text)
         found: list[Place] = []
         if _CJK.search(text):
-            found.extend(place for name, place in self._cjk.items() if name in text)
+            names = sorted((name for name in self._cjk if name in text), key=len, reverse=True)
+            # A name inside a longer one is part of it, not a place: 上 (Kami) in 上海, 京都 in 東京都.
+            found.extend(self._cjk[name] for name in names if not any(name in longer for longer in names
+                                                                      if len(longer) > len(name)))
         for part in _PART_BREAK.split(text):
             tokens = _TOKEN.findall(part)
             words = [t.lower().rstrip(".") for t in tokens]

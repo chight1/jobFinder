@@ -22,6 +22,7 @@ class FakeFetcher:
     def __init__(self, responses: dict[str, Any]) -> None:
         self.responses = responses
         self.requests: list[str] = []
+        self.bodies: list[Any] = []
 
     def _answer(self, url: str) -> Page:
         self.requests.append(url)
@@ -34,7 +35,9 @@ class FakeFetcher:
         return self._answer(str(URL(url, params=params)) if params else url)
 
     def post_json(self, source_id, url, body, *, kind="api"):
-        return self._answer(f"{url}#offset={body['offset']}")
+        self.bodies.append(body)
+        paging = "&".join(f"{key}={body[key]}" for key in ("offset", "page") if key in body)
+        return self._answer(f"{url}#{paging}")
 
 
 def ctx_for(fetcher: FakeFetcher, config: dict | None = None, board: dict | None = None, known=()) -> Context:
@@ -270,6 +273,12 @@ def test_a_feed_can_send_every_entry_to_its_job_page():
     assert rss._summary(entry, {"fetch_job_page": True}).description is None  # the runner fetches the page
 
 
+def test_a_feed_only_source_keeps_even_a_short_teaser():
+    entry = {"title": "Senior Engineer", "link": "https://startup.jobs/senior-engineer-1", "summary": "We build things."}
+    assert rss._summary(entry, {}).description is None  # short: the runner would fetch the job page
+    assert rss._summary(entry, {"feed_only": True}).description == "We build things."
+
+
 def test_feed_title_with_a_prefix_cut_off():
     entry = {"title": "Remote Backend Engineer (Mid/Senior), Maps at Wheely", "link": "https://example.com/1",
              "company": "Wheely"}
@@ -285,6 +294,33 @@ def test_detail_browser_sends_job_pages_through_the_browser():
 
 def test_amazon_date():
     assert json_apis._amazon_date("October  7, 2026") == "2026-10-07"
+
+
+def _techinasia_hit(n: int, **extra: Any) -> dict[str, Any]:
+    return {"id": f"id-{n}", "title": f"Job {n}", "company": json.dumps({"name": "Mobius Digital"}),
+            "city": {"name": "Jakarta", "country_name": "Indonesia"}, "work_arrangement": "remote",
+            "published_at": "2026-10-08 06:51:01", "description": "<p>Build things</p>",
+            "job_type": {"name": "Full-time"}, "position": {"name": "Software Engineer"}} | extra
+
+
+def test_techinasia_hits():
+    summary, onsite = json_apis._techinasia({"hits": [
+        _techinasia_hit(1), _techinasia_hit(2, work_arrangement="on-site", city={"name": "Tokyo", "country_name": "Japan"}),
+    ]})
+    assert (summary.url, summary.company, summary.location, summary.posted_at) == (
+        "https://www.techinasia.com/jobs/id-1", "Mobius Digital", "Jakarta, Indonesia; Remote", "2026-10-08T06:51:01+00:00")
+    assert summary.fields == {"employment_type": "Full-time", "category": "Software Engineer"}
+    assert onsite.location == "Tokyo, Japan"
+
+
+def test_a_body_makes_the_search_a_post_with_the_page_merged_in():
+    url = "https://example-dsn.algolia.net/1/indexes/job_postings/query"
+    fetcher = FakeFetcher({f"{url}#page=0": {"hits": [_techinasia_hit(1)]}, f"{url}#page=1": {"hits": []}})
+    ctx = ctx_for(fetcher, {"api": "techinasia", "url": url, "body": {"filters": "work_arrangement:remote"}})
+    listing = json_apis.list_postings(ctx, None)
+    assert [s.external_id for s in listing.summaries] == ["id-1"]
+    assert fetcher.bodies == [{"filters": "work_arrangement:remote", "page": 0},
+                              {"filters": "work_arrangement:remote", "page": 1}]
 
 
 @pytest.mark.parametrize(

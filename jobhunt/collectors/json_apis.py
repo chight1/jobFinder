@@ -1,5 +1,7 @@
 """Public job-board JSON APIs. Source config "api" picks the parser; "url" and "params" the request.
 "params" may be a list of param sets: each is its own search, and the jobs are merged by id.
+"body", when given, makes the request a POST of that JSON with the params and page merged in
+(Algolia searches).
 "categories", when given, keeps only jobs whose category (fields["category"]) is listed, for APIs
 that cannot filter by category themselves.
 
@@ -8,10 +10,11 @@ The lists are newest first. Paged APIs stop at the first page where every id is 
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Callable
 
-from jobhunt.collectors import Context, Listing, Summary, iso_from_s
+from jobhunt.collectors import Context, Listing, Summary, iso_from_s, join_place
 from jobhunt.collectors.pages import parse_job_page
 
 DEFAULT_MAX_PAGES = 10
@@ -138,6 +141,30 @@ def _amazon(data: Any) -> list[Summary]:
     return out
 
 
+def _techinasia(data: Any) -> list[Summary]:
+    """Tech in Asia's Algolia index. The company is a JSON string inside the hit."""
+    out = []
+    for job in data.get("hits", []):
+        company = job.get("company") or {}
+        if isinstance(company, str):
+            company = json.loads(company)
+        city = job.get("city") or {}
+        remote = "Remote" if job.get("work_arrangement") == "remote" else ""
+        published = job.get("published_at")
+        out.append(Summary(
+            external_id=job["id"],
+            url=f"https://www.techinasia.com/jobs/{job['id']}",
+            title=job.get("title", ""),
+            company=company.get("name", ""),
+            location="; ".join(p for p in (join_place(city.get("name"), city.get("country_name")), remote) if p),
+            posted_at=published.replace(" ", "T") + "+00:00" if published else None,
+            description=job.get("description"),
+            fields={"employment_type": (job.get("job_type") or {}).get("name"),
+                    "category": (job.get("position") or {}).get("name")},
+        ))
+    return out
+
+
 def _amazon_date(text: str | None) -> str | None:
     """'October  7, 2026' to '2026-10-07'."""
     if not text:
@@ -156,6 +183,7 @@ _APIS: dict[str, tuple[Callable[[Any], list[Summary]], Callable[[int], dict[str,
     "remoteok": (_remoteok, None),
     "workingnomads": (_working_nomads, None),
     "amazon": (_amazon, lambda n: {"offset": (n - 1) * 100, "result_limit": 100}),
+    "techinasia": (_techinasia, lambda n: {"page": n - 1}),
 }
 
 
@@ -174,7 +202,10 @@ def _search(ctx: Context, base_params: dict[str, Any]) -> dict[str, Summary]:
     found: dict[str, Summary] = {}
     for number in range(1, max_pages + 1):
         params = base_params | (paging(number) if paging else {})
-        page = ctx.fetcher.get(ctx.source_id, ctx.config["url"], kind="api", params=params or None)
+        if "body" in ctx.config:
+            page = ctx.fetcher.post_json(ctx.source_id, ctx.config["url"], ctx.config["body"] | params)
+        else:
+            page = ctx.fetcher.get(ctx.source_id, ctx.config["url"], kind="api", params=params or None)
         summaries = [
             s for s in parse(page.json())
             if s.external_id and s.url and (not categories or s.fields.get("category") in categories)

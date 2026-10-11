@@ -138,8 +138,8 @@ The runner compares the returned ids with the database: new ids become sightings
 | SmartRecruiters | GET api.smartrecruiters.com/v1/companies/ID/postings?limit=100&offset=N | offset | GET …/postings/POSTING_ID |
 | Workday | POST HOST/wday/cxs/TENANT/SITE/jobs with limit 20, offset N, empty search text | offset | GET HOST/wday/cxs/TENANT/SITE plus the job's path |
 | HRMOS, Talentio | GET the public job list page | page links | GET the job page |
-| RSS feeds | GET the feed | none | when the feed's text is under 500 characters |
-| JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, startup.jobs) | GET with the API's Japan, Asia or worldwide filter where it has one | the API's own paging, newest first | rarely |
+| RSS feeds | GET the feed | none | when the feed's text is under 500 characters, unless the source is feed-only (startup.jobs, whose job pages have a checkbox challenge) |
+| JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, Amazon, Tech in Asia) | GET with the API's Japan, Asia or worldwide filter where it has one; Tech in Asia POSTs an Algolia search | the API's own paging, newest first | rarely |
 | Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting |
 | Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page |
 | Browser sites (CareerCross, Wellfound) | Playwright loads list pages | until no new ids | the job page |
@@ -408,7 +408,7 @@ Every source the collectors cover. sources.csv is built from this table; company
 | CareerCross | browser | https://www.careercross.com/en | Public pages with anti-bot |
 | GaijinPot Jobs | html | https://jobs.gaijinpot.com | Public pages. robots.txt blocks crawlers; jpjobs scrapes it over HTTP |
 | Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
-| startup.jobs | json_api | https://startup.jobs/locations/japan | API: api.startup.jobs/v1/jobs?workplace_type=remote&role=engineering&country=... (free key, 20 req/min). RSS without key: startup.jobs/feeds/jobs?role=engineering |
+| startup.jobs | rss | https://startup.jobs/locations/japan | RSS without key: startup.jobs/feeds/jobs?role=engineering. Feed-only: job pages have a checkbox challenge. (The API needs a free key, 20 req/min) |
 | Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |
 | JAC Recruitment | manual | https://www.jac-recruitment.jp/ | Agent sign-up; public job search |
 | en world Japan | manual | https://www.enworld.com/ | Agent sign-up; public listings |

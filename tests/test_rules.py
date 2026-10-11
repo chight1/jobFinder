@@ -42,6 +42,38 @@ def test_location(location, expected, gaz):
     assert rules.classify_location(location, gaz) == expected
 
 
+def _geonames_city(name: str, alternates: str, country: str, population: int) -> str:
+    return "\t".join(["1", name, name, alternates, "0", "0", "P", "PPL", country, "", "01", "", "", "",
+                      str(population), "", "", "", ""])
+
+
+@pytest.fixture(scope="module")
+def kanji_gaz(tmp_path_factory) -> rules.Gazetteer:
+    folder = tmp_path_factory.mktemp("geonames")
+    (folder / "admin1CodesASCII.txt").write_text("JP.01\tTokyo\tTokyo\t1\n", encoding="utf-8")
+    (folder / "countryInfo.txt").write_text("".join(
+        f"{code}\t{code3}\t0\t\t{name}\t\t0\t{population}\n"
+        for code, code3, name, population in (("JP", "JPN", "Japan", 125_000_000), ("CN", "CHN", "China", 1_400_000_000),
+                                              ("TW", "TWN", "Taiwan", 23_000_000))), encoding="utf-8")
+    (folder / "cities15000.txt").write_text("\n".join([
+        _geonames_city("Shanghai", "上海,Shanghai", "CN", 24_000_000),
+        _geonames_city("Taipei", "台北,台北市", "TW", 2_600_000),
+        _geonames_city("Kami", "上", "JP", 20_000),  # one-character names stand for Japanese places only
+        _geonames_city("Kita", "北", "JP", 350_000),
+        _geonames_city("Fuzhou", "福州", "CN", 7_000_000),
+        _geonames_city("Fukushima", "福州,福島", "JP", 280_000),  # an invented clash: the Japanese city keeps it
+    ]) + "\n", encoding="utf-8")
+    return rules.Gazetteer.from_geonames(folder)
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [("上海", "outside"), ("台北市", "outside"), ("北", "japan"), ("福州", "japan"), ("東京都", "japan")],
+)
+def test_kanji_places_beyond_japan(location, expected, kanji_gaz):
+    assert rules.classify_location(location, kanji_gaz) == expected
+
+
 @pytest.mark.parametrize(
     ("title", "removed"),
     [

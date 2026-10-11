@@ -14,6 +14,8 @@ Source config:
     location_first_line  true when the entry text starts with the place, as "City, Region, Country" (Python.org)
     fetch_job_page  true when entries lack something only the job page has (Remote First Jobs: the
                     location): every new entry that passes the title rules gets its job page
+    feed_only       true when the job pages cannot be opened (startup.jobs: a checkbox challenge):
+                    the entry text is the description, however short
 """
 
 from __future__ import annotations
@@ -112,5 +114,12 @@ def _summary(entry: Any, config: dict[str, Any]) -> Summary:
         company=str(company),
         location=str(location),
         posted_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", published) if published else None,
-        description=text if len(to_text(text)) >= SHORT_TEXT_CHARS and not config.get("fetch_job_page") else None,
+        description=text if _keeps_text(text, config) else None,
     )
+
+
+def _keeps_text(text: str, config: dict[str, Any]) -> bool:
+    """Whether the entry text stands as the description, or the job page is fetched for one."""
+    if config.get("feed_only"):
+        return bool(text)
+    return len(to_text(text)) >= SHORT_TEXT_CHARS and not config.get("fetch_job_page")
