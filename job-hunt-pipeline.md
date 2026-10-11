@@ -410,7 +410,6 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
 | startup.jobs | json_api | https://startup.jobs/locations/japan | API: api.startup.jobs/v1/jobs?workplace_type=remote&role=engineering&country=... (free key, 20 req/min). RSS without key: startup.jobs/feeds/jobs?role=engineering |
 | Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |
-| r/JapanDev | rss | https://www.reddit.com/r/JapanDev/ | RSS: append .rss; Reddit JSON |
 | JAC Recruitment | manual | https://www.jac-recruitment.jp/ | Agent sign-up; public job search |
 | en world Japan | manual | https://www.enworld.com/ | Agent sign-up; public listings |
 | Robert Walters Japan | manual | https://www.robertwalters.co.jp/en/ | Agent sign-up; public job search |
@@ -433,8 +432,6 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Hacker News Who Is Hiring | hn | https://news.ycombinator.com/submitted?id=whoishiring | Algolia API: hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring then /api/v1/items/{id} |
 | Remote Rocketship | html | https://www.remoterocketship.com/country/japan/jobs/software-engineer | Public pages; email alerts |
 | Remote.com Jobs | html | https://remote.com/jobs/all | Public pages |
-| Arc (full-time only) | manual | https://arc.dev/remote-jobs | Sign-up for full list |
-| Y Combinator Work at a Startup | manual | https://www.workatastartup.com | Account to see and apply |
 | HRMOS | hrmos | https://hrmos.co/pages/COMPANY/jobs | Public list page per company |
 | Greenhouse | greenhouse | https://boards-api.greenhouse.io/v1/boards/COMPANY/jobs | Public JSON API, no key. List without content, then /jobs/ID for new jobs |
 | Lever | lever | https://api.lever.co/v0/postings/COMPANY?mode=json | Public JSON API, no key |
