@@ -410,16 +410,13 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
 | startup.jobs | rss | https://startup.jobs/locations/japan | RSS without key: startup.jobs/feeds/jobs?role=engineering. Feed-only: job pages have a checkbox challenge. (The API needs a free key, 20 req/min) |
 | Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |
-| JAC Recruitment | manual | https://www.jac-recruitment.jp/ | Agent sign-up; public job search |
-| en world Japan | manual | https://www.enworld.com/ | Agent sign-up; public listings |
-| Robert Walters Japan | manual | https://www.robertwalters.co.jp/en/ | Agent sign-up; public job search |
-| Hays Japan | manual | https://www.hays.co.jp/en/ | Agent sign-up; public 'Technology jobs in Osaka' search |
-| Michael Page Japan | manual | https://www.michaelpage.co.jp/en | Agent sign-up; public job search (/en/jobs/it/osaka) |
-| Robert Half Japan | manual | https://www.roberthalf.com/jp/en | Agent sign-up; public job search |
-| RGF Professional Recruitment | manual | https://www.rgf-professional.jp/en/ | Agent sign-up; public job search |
-| Build+ (formerly Wahl+Case) | manual | https://buildplus.io/ | Agent sign-up; public job pages |
-| Computer Futures Japan | manual | https://www.computerfutures.com/ja-jp/ | Agent sign-up; public job search |
-| Global×Engineer (Agent Inc.) | manual | https://agent-network.com/globalengineer | Agent sign-up |
+| JAC Recruitment | html | https://www.jac-recruitment.jp/search/it/ | IT category list; mostly Japanese postings that name the employer |
+| en world Japan | manual | https://www.enworld.com/ | Job search is a Salesforce site whose cards have no links; its jobs come from Aura calls |
+| Robert Walters Japan | html | https://www.robertwalters.co.jp/en/jobs.html?specialization=information-technology | Information technology list, pages from p=0 |
+| Hays Japan | browser | https://www.hays.co.jp/en/job-search?specialismId=Technology | Technology search (a JavaScript app); JobPosting JSON-LD on job pages |
+| Michael Page Japan | html | https://www.michaelpage.co.jp/en/jobs/it | IT and Technology & Telecoms lists, pages from page=0 |
+| Robert Half Japan | html | https://www.roberthalf.com/jp/en/jobs?lobid=RHT | IT and technology list; JobPosting JSON-LD inside the page's mainEntity |
+| RGF Professional Recruitment | html | https://www.rgf-professional.jp/en/jobs/ | Technology and Internal IT occupations; mostly Japanese postings |
 | Himalayas | json_api | https://himalayas.app/jobs/countries/japan | API: himalayas.app/jobs/api/search?country=JP&employment_type=Full%20Time; RSS himalayas.app/rss |
 | Jobicy | json_api | https://jobicy.com | API: jobicy.com/api/v2/remote-jobs?geo=japan&industry=dev&count=50; RSS jobicy.com/jobs/feed |
 | Real Work From Anywhere | rss | https://www.realworkfromanywhere.com | RSS: /rss.xml, /remote-fullstack-jobs/rss.xml, /remote-backend-jobs/rss.xml, /remote-frontend-jobs/rss.xml |

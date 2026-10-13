@@ -195,6 +195,10 @@ class Runner:
         self, ctx: Context, detail: ModuleType, source: sqlite3.Row, board_id: int | None, summary: Summary
     ) -> Outcome:
         summary = replace(summary, location=self._place(ctx, summary))
+        if not summary.company and source["kind"] == "agent":
+            # Agency posts usually hide the employer. The agency's name keeps them apart from each
+            # other in dedupe (agency posts are never merged) instead of all sharing a blank company.
+            summary = replace(summary, company=source["name"])
         url = canonical_url(summary.url)
         existing = self.conn.execute(
             "SELECT id FROM sightings "

@@ -8,6 +8,7 @@ Source config:
     job_link    regex matched against absolute links; group 1 is the job's stable id
     page_param  query parameter for page 2, 3, ... (omit for a single page)
     page_url    or a template for page 2, 3, ... such as "https://example.com/jobs/{page}"
+    first_page  the number the site gives its first page (default 1; 0 on Robert Walters and Michael Page)
     max_pages   page limit per list URL (default 10)
     whole_list  true when the list pages show every open job in no set order (company pages,
                 HRMOS): every page is walked, not just up to the first page of known jobs
@@ -177,6 +178,7 @@ def _walk(data: Any) -> Iterator[dict[str, Any]]:
     elif isinstance(data, dict):
         yield data
         yield from _walk(data.get("@graph", []))
+        yield from _walk(data.get("mainEntity", []))  # a WebPage around the JobPosting (Robert Half)
 
 
 def apply_job_posting(summary: Summary, posting: dict[str, Any]) -> Summary:
@@ -243,13 +245,13 @@ def _salary(salary: Any) -> dict[str, Any]:
     value = salary.get("value") or {}
     if not isinstance(value, dict):
         value = {"value": value}
-    low = value.get("minValue") or value.get("value")
-    high = value.get("maxValue") or value.get("value")
+    low = _number(value.get("minValue") or value.get("value"))
+    high = _number(value.get("maxValue") or value.get("value"))
     if not low and not high:
-        return {}
+        return {}  # none given, or only words ("Competitive")
     return {
-        "pay_min": _number(low),
-        "pay_max": _number(high),
+        "pay_min": low,
+        "pay_max": high,
         "pay_currency": salary.get("currency"),
         "pay_period": _PERIODS.get(str(value.get("unitText", "YEAR")).upper(), "year"),
     }
@@ -290,9 +292,11 @@ def job_links(text: str, base_url: str, pattern: re.Pattern[str]) -> Iterator[tu
 def page_url(list_url: str, number: int, config: dict[str, Any]) -> str:
     if number == 1:
         return list_url
+    site_number = int(config.get("first_page", 1)) + number - 1
     if config.get("page_url"):
-        return config["page_url"].format(page=number)
+        return config["page_url"].format(page=site_number)
     parts = urlsplit(list_url)
     name = config["page_param"]
-    query = [(k, v) for k, v in parse_qsl(parts.query) if k != name] + [(name, str(number))]
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != name]
+    query.append((name, str(site_number)))
     return urlunsplit(parts._replace(query=urlencode(query)))

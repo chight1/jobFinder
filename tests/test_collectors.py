@@ -142,6 +142,30 @@ def test_pages_list_keeps_titled_link_and_stops_at_known_page():
     assert "https://example.com/jobs?page=3" not in fetcher.requests
 
 
+def test_pages_counted_from_zero():
+    config = {"page_param": "p", "first_page": 0}
+    assert pages.page_url("https://example.com/jobs.html?q=&p=0", 1, config) == "https://example.com/jobs.html?q=&p=0"
+    assert pages.page_url("https://example.com/jobs.html?q=&p=0", 2, config) == "https://example.com/jobs.html?q=&p=1"
+    assert pages.page_url("https://example.com/jobs", 3, {"page_url": "https://example.com/jobs/page/{page}/"}) == (
+        "https://example.com/jobs/page/3/")
+
+
+def test_job_posting_inside_a_web_page():
+    ld = {"@type": "WebPage", "name": "AI Engineer Job in Tokyo",
+          "mainEntity": {"@type": "JobPosting", "title": "AI Engineer", "hiringOrganization": {"name": "Robert Half"}}}
+    html = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    summary = pages.parse_job_page(html, Summary("1", "https://example.com/jobs/1", "link text", from_link=True), {})
+    assert (summary.title, summary.company) == ("AI Engineer", "Robert Half")
+
+
+def test_job_posting_pay_in_words_is_no_pay():
+    ld = {"@type": "JobPosting", "title": "SAP Consultant",
+          "baseSalary": {"currency": "renminbi", "value": {"value": "Competitive", "unitText": "YEAR"}}}
+    html = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    summary = pages.parse_job_page(html, Summary("1", "https://example.com/jobs/1", "link text", from_link=True), {})
+    assert "pay_min" not in summary.fields
+
+
 def test_job_posting_json_ld():
     ld = {
         "@context": "https://schema.org", "@type": "JobPosting", "title": "Platform Engineer",

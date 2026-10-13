@@ -131,6 +131,23 @@ def test_a_source_default_location_fills_a_blank_one(conn, cfg, gaz):
     assert places == {"Remote (open to Japan)"}  # a fixed one wins over the posting's
 
 
+def test_an_agency_post_without_a_company_gets_the_agency_name(conn, cfg, gaz):
+    config = {"list_urls": ["https://agency.example/jobs"], "job_link": r"^https://agency\.example/jobs/(\d+)$",
+              "selectors": {"company": ".client", "location": ".place"}}
+    runner = _setup(conn, cfg, gaz, {
+        "https://agency.example/jobs": '<a href="/jobs/1">Backend Engineer</a><a href="/jobs/2">Frontend Engineer</a>',
+        "https://agency.example/jobs/1": '<h1>Backend Engineer</h1><p class="place">Tokyo</p><main>Build APIs.</main>',
+        "https://agency.example/jobs/2": '<h1>Frontend Engineer</h1><p class="client">Acme KK</p>'
+                                         '<p class="place">Tokyo</p><main>Build screens.</main>',
+    })
+    conn.execute("INSERT INTO sources (id, name, collector, kind, link, config, enabled) "
+                 "VALUES ('agency', 'Example Recruitment', 'html', 'agent', 'https://agency.example', ?, 1)",
+                 (db.dumps(config),))
+    runner.run_source(conn.execute("SELECT * FROM sources WHERE id = 'agency'").fetchone())
+    companies = dict(conn.execute("SELECT external_id, company_raw FROM sightings").fetchall())
+    assert companies == {"1": "Example Recruitment", "2": "Acme KK"}  # a named employer still wins
+
+
 def test_a_block_keeps_the_totals_of_what_came_before_it(conn, cfg, gaz):
     responses = {
         BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo"), _job(2, "Frontend Engineer", "Osaka")]},
