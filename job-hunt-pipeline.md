@@ -224,7 +224,7 @@ The model only reads postings and fills in facts. It never scores: scoring is a 
 
 **Validation.** Invalid JSON or a schema failure gets one retry, with the error message added to the prompt. A second failure marks the job extract_failed. It stays in the list with a "check" badge and shows on the health view.
 
-**Server failures.** A server error or lost connection is retried after 30 s, then 2 minutes, then 5 minutes; a crashed model engine restarts on the next request. The model worker stops for the night only when all four attempts fail. A request the server refuses (a 4xx, such as a prompt longer than its context) skips that one task instead.
+**Server failures.** A server error or lost connection is retried after 30 s, then 2 minutes, then 5 minutes; a crashed model engine restarts on the next request. The model worker stops for the night only when all four attempts fail. A request the server refuses (a 4xx, such as a prompt longer than its context) skips that one task instead, and so does a reply the server cuts off because the model looped ("prediction aborted, token repeat limit reached"): that gets one more try straight away, then the job is marked extract_failed and the queue goes on.
 
 **Versioning.** Each job stores the prompt version behind its facts. A new prompt never re-runs old jobs by itself; "jobhunt reextract --since DATE" does it on request.
 
@@ -326,7 +326,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 A plain /jobs is the open list. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 
-Workers report what they are doing in an activity table as they go; a note left untouched for 30 minutes is flagged, since its process has probably stopped.
+Workers report what they are doing in an activity table as they go, with their process id. A note whose process has exited (killed, or out of memory) is left off the Activity page; a live one left untouched for 30 minutes is flagged, since it may be stuck.
 
 **Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, and Restore on a removed job. The current status shows filled in; clicking it again clears it.
 

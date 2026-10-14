@@ -24,7 +24,8 @@ from jobhunt.collectors.runner import Runner, Shared, Tally, record_outcome
 from jobhunt.config import Config, reload_skills
 from jobhunt.dedupe import AgencyIndex, judge_pair, merge_jobs
 from jobhunt.fetch import DailyCapReached, Fetcher, SourceBlocked
-from jobhunt.llm import EXTRACT_PROMPT_VERSION, LLM, InvalidOutput, LLMError, extract
+from jobhunt.llm import (EXTRACT_PROMPT_VERSION, LLM, GenerationAborted, InvalidOutput, LLMError, RequestRejected,
+                         extract)
 from jobhunt.rules import Gazetteer
 from jobhunt.text import to_text
 
@@ -366,7 +367,7 @@ def extract_job(
     """Facts from the model, then the fact rules and the formula, so the top 20 stays current."""
     try:
         facts = extract(conn, llm, cfg, job_id)
-    except InvalidOutput as exc:
+    except (InvalidOutput, RequestRejected, GenerationAborted) as exc:  # this job's trouble: the queue goes on
         log.warning("extraction failed for job %s: %s", job_id, exc)
         _mark_extract_failed(conn, cfg, gaz, job_id, counts)
         return

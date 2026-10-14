@@ -17,7 +17,7 @@ from typing import Any
 
 from jobhunt import score
 from jobhunt.config import Config
-from jobhunt.llm import LLM, Facts, InvalidOutput, RequestRejected, extract_posting, load_posting
+from jobhunt.llm import LLM, Facts, GenerationAborted, InvalidOutput, RequestRejected, extract_posting, load_posting
 
 MIN_DESCRIPTION_CHARS = 200
 _NUMBERS = frozenset({"office_days_per_week", "years_required", "pay_min", "pay_max"})
@@ -97,7 +97,7 @@ def evaluate(cfg: Config, llm: LLM, directory: Path) -> Report:
         report.labeled += 1
         try:
             got = extract_posting(llm, cfg, label["posting"]).model_dump()
-        except (InvalidOutput, RequestRejected):
+        except (InvalidOutput, RequestRejected, GenerationAborted):
             report.failed.append(path.name)
             continue
         for name, want in expected.items():

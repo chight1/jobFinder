@@ -107,6 +107,33 @@ def test_an_invalid_reply_is_logged_as_one(cfg, conn):
     assert calls[0]["error"].startswith("invalid reply: no JSON object")
 
 
+_LOOPED = {"error": {"message": "prediction aborted, token repeat limit reached", "type": "api_error"}}
+
+
+def test_a_looped_reply_is_tried_once_more_without_waiting(cfg, conn, monkeypatch):
+    replies = iter([httpx.Response(500, json=_LOOPED),
+                    httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(GOOD_FACTS)}}]})])
+    monkeypatch.setattr(llm.time, "sleep", lambda s: pytest.fail("no wait for a loop"))
+    client = llm.LLM(cfg, conn)
+    client._client = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    assert client.chat_json("extract", 7, [{"role": "user", "content": "facts?"}], llm.Facts).employment == "payroll"
+
+
+def test_a_job_that_keeps_looping_fails_alone(cfg, conn, monkeypatch):
+    calls = []
+
+    def server(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(500, json=_LOOPED)
+
+    monkeypatch.setattr(llm.time, "sleep", lambda s: pytest.fail("no wait for a loop"))
+    client = llm.LLM(cfg, conn)
+    client._client = httpx.Client(transport=httpx.MockTransport(server))
+    with pytest.raises(llm.GenerationAborted):  # not LLMError, which would stop the worker
+        client.chat_json("extract", 7, [{"role": "user", "content": "facts?"}], llm.Facts)
+    assert len(calls) == 2
+
+
 def test_facts_schema_rejects_unknown_values():
     assert llm.Facts.model_validate(GOOD_FACTS).employment == "payroll"
     with pytest.raises(ValidationError):

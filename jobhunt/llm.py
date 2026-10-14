@@ -39,6 +39,11 @@ class InvalidOutput(Exception):
     """The model's reply failed validation twice."""
 
 
+class GenerationAborted(Exception):
+    """The server cut the model off on this request ("token repeat limit reached": it looped). The job's
+    text is the trouble, not the server, so the job fails and the queue goes on."""
+
+
 # --- facts schema ----------------------------------------------------------------
 
 
@@ -163,9 +168,15 @@ class LLM:
         if response_format:
             body["response_format"] = response_format
         attempts = len(self._retry_waits_s) + 1
+        aborted = False
         for attempt in range(1, attempts + 1):
             try:
                 return self._post(kind, job_id, body)
+            except GenerationAborted as exc:
+                if aborted:
+                    raise
+                aborted = True  # a loop is not certain to repeat: one more try straight away
+                log.warning("model looped on this request, trying once more: %s", exc)
             except LLMError as exc:
                 if attempt == attempts:
                     raise
@@ -186,8 +197,11 @@ class LLM:
         if resp.status_code != 200:
             message = f"model server answered HTTP {resp.status_code}: {resp.text[:300]}"
             self._log(kind, job_id, seconds, error=message)
-            error = RequestRejected if 400 <= resp.status_code < 500 else LLMError
-            raise error(message)
+            if 400 <= resp.status_code < 500:
+                raise RequestRejected(message)
+            if "prediction aborted" in resp.text:
+                raise GenerationAborted(message)
+            raise LLMError(message)
         self._log(kind, job_id, seconds)
         return resp.json()["choices"][0]["message"].get("content") or ""
 
