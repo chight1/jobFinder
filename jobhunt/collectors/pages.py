@@ -135,7 +135,7 @@ def parse_job_page(html: str, summary: Summary, selectors: dict[str, str]) -> Su
     def pick(name: str, default: str = "") -> str:
         selector = selectors.get(name)
         node = tree.css_first(selector) if selector else None
-        return tidy(node.text(separator=" ")) if node else default
+        return " ".join(node.text(separator=" ").split()) if node else default  # one line: "Asia Japan Tokyo"
 
     heading = tree.css_first("h1")
     title = pick("title") or (tidy(heading.text()) if heading else summary.title)
