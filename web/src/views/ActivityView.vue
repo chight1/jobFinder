@@ -39,7 +39,7 @@ const jobId = (detail: string) => detail.slice(1); // a model call's detail is "
       <ul v-if="activity.running.length" class="plain">
         <li v-for="item in activity.running" :key="item.worker" :class="{ flag: item.stale }">
           <strong>{{ item.worker }}</strong>: {{ item.doing }} · {{ item.age }}
-          <template v-if="item.stale"> · no update in a long time; its process may have stopped</template>
+          <template v-if="item.stale"> · no update in a long time; it may be stuck</template>
         </li>
       </ul>
       <p v-else class="empty">Nothing is running.</p>

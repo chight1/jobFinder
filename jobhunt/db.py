@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -215,6 +216,10 @@ MIGRATIONS: list[str] = [
     ALTER TABLE sightings DROP COLUMN closed_at;
     ALTER TABLE sightings DROP COLUMN miss_streak;
     """,
+    """
+    -- The process that wrote an activity note, so a killed one's note is not shown as running forever.
+    ALTER TABLE activity ADD COLUMN pid INTEGER;
+    """,
 ]
 
 
@@ -275,9 +280,9 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 def set_activity(conn: sqlite3.Connection, worker: str, doing: str) -> None:
     conn.execute(
-        "INSERT INTO activity (worker, doing, since) VALUES (?, ?, ?) "
-        "ON CONFLICT (worker) DO UPDATE SET doing = excluded.doing, since = excluded.since",
-        (worker, doing, utc_now()),
+        "INSERT INTO activity (worker, doing, since, pid) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (worker) DO UPDATE SET doing = excluded.doing, since = excluded.since, pid = excluded.pid",
+        (worker, doing, utc_now(), os.getpid()),
     )
 
 

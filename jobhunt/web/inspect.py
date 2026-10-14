@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from jobhunt import db
+from jobhunt import db, processes
 from jobhunt.config import Profile
 from jobhunt.score import canonical_skill, skill_level
 from jobhunt.text import to_text
@@ -20,7 +20,7 @@ TABLES = (
 )
 PAGE_SIZE = 50
 CELL_CHARS = 120
-STALE_AFTER = timedelta(minutes=30)  # a worker note this old means its process probably died
+STALE_AFTER = timedelta(minutes=30)  # a worker note this old, from a live process, means it is stuck
 LOG_TAIL_BYTES = 64 * 1024
 
 
@@ -174,7 +174,9 @@ def job_ids_with_skill(conn: sqlite3.Connection, key: str) -> list[int]:
 
 def activity_snapshot(conn: sqlite3.Connection, log_path: Path) -> dict[str, Any]:
     now = datetime.now(UTC)
-    rows = conn.execute("SELECT * FROM activity ORDER BY worker").fetchall()
+    # A killed process never clears its notes; those are left out. A note without a pid predates the column.
+    rows = [row for row in conn.execute("SELECT * FROM activity ORDER BY worker")
+            if row["pid"] is None or processes.alive(row["pid"])]
     ages = {row["worker"]: now - datetime.fromisoformat(row["since"]) for row in rows}
     # A worker note changes with every task, so its age shows whether it is alive. A run note
     # ("run:process") is written once at the start, so a long run is alive while any worker reports.

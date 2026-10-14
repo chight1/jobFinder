@@ -4,12 +4,14 @@ Engineer at Acme, asking for Go)."""
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
 from typing import get_args
 
-from jobhunt import score
+from jobhunt import db, score
 from jobhunt.web import api, filters
 
 
@@ -252,6 +254,16 @@ def test_a_long_run_is_not_stale_while_its_worker_reports(client, conn):
 
     conn.execute("UPDATE activity SET since = '2000-01-01T00:00:00+00:00'")
     assert all(w["stale"] for w in client.get("/api/activity").json()["running"])  # nothing reported in years
+
+
+def test_a_killed_process_leaves_no_running_note(client, conn):
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait()
+    conn.execute("INSERT INTO activity (worker, doing, since, pid) VALUES ('run:nightly', 'nightly run', ?, ?)",
+                 (db.utc_now(), ended.pid))
+    db.set_activity(conn, "run:process", "model worker")  # this process: alive
+    running = [w["worker"] for w in client.get("/api/activity").json()["running"]]
+    assert "run:nightly" not in running and "run:process" in running
 
 
 # --- data and packets ---
