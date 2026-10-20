@@ -14,3 +14,6 @@ data/
 # Generated application packets and personal resumes
 packets/
 profile/resumes/
+
+# the candidate's own facts: skills, years, pay floor
+profile.toml
