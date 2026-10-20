@@ -5,6 +5,7 @@ create_api, which string annotations could not reach."""
 
 import logging
 import sqlite3
+import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Callable, Iterator, Literal
@@ -12,7 +13,7 @@ from typing import Annotated, Any, Callable, Iterator, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from jobhunt import blacklist, db, profile_file, rules, score
+from jobhunt import blacklist, db, nightly, processes, profile_file, rules, score
 from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
@@ -211,9 +212,6 @@ class RunTotals(BaseModel):
     new_sightings: int = 0
     new_jobs: int = 0
     removed_by_code: int = 0
-    extracted: int = 0
-    removed_after_extraction: int = 0
-    failed: int = 0
 
 
 class BackupState(BaseModel):
@@ -225,12 +223,18 @@ class BackupState(BaseModel):
 class Health(BaseModel):
     seconds_per_job: float | None = Field(description="Average over the last 200 extractions")
     queue: int
-    nights: float | None = Field(description="Nights the queue takes at that speed")
+    hours: float | None = Field(description="Hours of model time the queue takes at that speed")
     model_flags: list[str] = Field(description="extraction failing, model behind")
     last_run: RunTotals | None
     boards: dict[str, int] = Field(description="Company boards per tier")
     backup: BackupState
     sources: list[SourceHealth]
+
+
+class ModelWorker(BaseModel):
+    state: Literal["running", "pausing", "paused", "stopped"] = Field(
+        description="pausing: paused, but still finishing the task it had; stopped: no worker is running")
+    doing: str | None = Field(description="Its Activity note, e.g. 'extracting #42 Backend Engineer'")
 
 
 class Worker(BaseModel):
@@ -369,30 +373,46 @@ def health_report(conn: sqlite3.Connection, cfg: Config) -> Health:
         "ORDER BY id DESC LIMIT 200)"
     ).fetchone()[0]
     queue = conn.execute("SELECT COUNT(*) FROM jobs WHERE stage = 'queued'").fetchone()[0]
-    start = datetime.strptime(cfg.schedule["start"], "%H:%M")
-    stop = datetime.strptime(cfg.schedule["model_stop"], "%H:%M")
-    window_s = (stop - start).total_seconds() % 86400
-    per_night = window_s / seconds if seconds else None
-    nights = queue / per_night if per_night else None
+    hours = queue * seconds / 3600 if seconds else None
+    calls, failed = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(ok = 0), 0) FROM (SELECT ok FROM llm_log WHERE kind = 'extract' "
+        "ORDER BY id DESC LIMIT 200)"
+    ).fetchone()
 
-    extracted, failed = last.get("extracted", 0), last.get("failed", 0)
     model_flags = []
-    if extracted + failed and failed / (extracted + failed) > 0.10:
+    if calls and failed / calls > 0.10:
         model_flags.append("extraction failing")
-    if nights is not None and nights > 3:
+    if hours is not None and hours > 24:
         model_flags.append("model behind")
 
     totals = {k: v for k, v in last.items() if k in RunTotals.model_fields and isinstance(v, int)}
     return Health(
         seconds_per_job=seconds,
         queue=queue,
-        nights=nights,
+        hours=hours,
         model_flags=model_flags,
         last_run=RunTotals(started_at=runs[0]["started_at"], **totals) if runs else None,
         boards={r["tier"]: r["n"] for r in conn.execute("SELECT tier, COUNT(*) AS n FROM companies GROUP BY tier")},
         backup=_backup_state(conn, cfg),
         sources=sources,
     )
+
+
+def worker_pid(conn: sqlite3.Connection) -> int | None:
+    """The always-on model worker's process, from the note only the worker holding the queue writes."""
+    row = conn.execute("SELECT pid FROM activity WHERE worker = 'run:process'").fetchone()
+    return row["pid"] if row and row["pid"] and processes.alive(row["pid"]) else None
+
+
+def model_worker(conn: sqlite3.Connection) -> ModelWorker:
+    if worker_pid(conn) is None:
+        return ModelWorker(state="stopped", doing=None)
+    row = conn.execute("SELECT doing FROM activity WHERE worker = 'model'").fetchone()
+    doing = row["doing"] if row else None
+    if not nightly.is_paused(conn):
+        return ModelWorker(state="running", doing=doing)
+    idle = doing in (None, "paused", "waiting for work")
+    return ModelWorker(state="paused" if idle else "pausing", doing=doing)
 
 
 def _backup_state(conn: sqlite3.Connection, cfg: Config) -> BackupState:
@@ -590,6 +610,37 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
     def health(conn: Conn) -> Health:
         """How each source and the model are doing, and the last backup."""
         return health_report(conn, cfg)
+
+    @api.get("/model")
+    def model(conn: Conn) -> ModelWorker:
+        """Whether the model worker is running, paused or stopped. The Health page asks every few seconds."""
+        return model_worker(conn)
+
+    @api.post("/model/pause")
+    def pause_model(conn: Conn) -> ModelWorker:
+        """The worker finishes the task it has, then takes no more until Play."""
+        db.set_setting(conn, nightly.PAUSED, "1")
+        return model_worker(conn)
+
+    @api.post("/model/stop")
+    def stop_model(conn: Conn) -> ModelWorker:
+        """End the worker at once, mid-task; the job it had stays queued. It stays paused, so a worker
+        started again (at logon, say) waits for Play."""
+        db.set_setting(conn, nightly.PAUSED, "1")
+        pid = worker_pid(conn)
+        if pid is not None:
+            processes.end(pid)
+            for note in ("run:process", "model"):
+                db.clear_activity(conn, note)
+        return model_worker(conn)
+
+    @api.post("/model/play")
+    def play_model(conn: Conn) -> ModelWorker:
+        """Unpause the worker, or start one when none is running."""
+        db.set_setting(conn, nightly.PAUSED, "0")
+        if worker_pid(conn) is None:
+            processes.start_detached([sys.executable, "-m", "jobhunt", "--root", str(cfg.root), "process"], cfg.root)
+        return model_worker(conn)
 
     @api.post("/sources/{source_id}/enable", status_code=204)
     def enable_source(source_id: str, conn: Conn) -> None:

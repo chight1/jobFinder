@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { api, type Health } from "../api/client";
+import { onUnmounted, ref } from "vue";
+import { api, type Health, type ModelWorker } from "../api/client";
 
 // How each source and the model are doing, and the last backup. "Back up now" and "turn back on"
-// act in place; a backup commits and pushes the data, so it can take a few seconds.
+// act in place; a backup commits and pushes the data, so it can take a few seconds. The model
+// worker's state is asked for every 5 seconds, since a pause only lands when its task is done.
+const POLL_MS = 5_000;
 const health = ref<Health | null>(null);
 const failed = ref(false);
 const backingUp = ref(false);
@@ -40,6 +42,39 @@ async function turnBackOn(id: string) {
   }
 }
 
+const worker = ref<ModelWorker | null>(null);
+const starting = ref(false); // Play started a worker that has not reported yet
+const STATE_NAMES = { running: "Running", pausing: "Pausing after this task", paused: "Paused", stopped: "Stopped" };
+
+let timer: number | undefined;
+async function pollWorker() {
+  try {
+    const { data } = await api.GET("/model");
+    if (data) worker.value = data;
+    if (data?.state !== "stopped") starting.value = false;
+  } catch {
+    // The server is down or restarting; the next check tries again.
+  }
+  timer = window.setTimeout(pollWorker, POLL_MS);
+}
+pollWorker();
+onUnmounted(() => window.clearTimeout(timer));
+
+const CONTROLS = {
+  pause: () => api.POST("/model/pause"),
+  stop: () => api.POST("/model/stop"),
+  play: () => api.POST("/model/play"),
+};
+async function control(action: keyof typeof CONTROLS) {
+  try {
+    const { data } = await CONTROLS[action]();
+    if (data) worker.value = data;
+    starting.value = action === "play" && data?.state === "stopped";
+  } catch {
+    // The server is down or restarting; clicking again retries.
+  }
+}
+
 const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? "";
 </script>
 
@@ -50,18 +85,26 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
   <template v-else-if="health">
     <section>
       <h2>Model</h2>
+      <div v-if="worker" class="model-worker">
+        <span>
+          Worker: <strong>{{ starting ? "Starting…" : STATE_NAMES[worker.state] }}</strong>
+          <template v-if="worker.doing && worker.state !== 'paused'"> · {{ worker.doing }}</template>
+        </span>
+        <button v-if="worker.state === 'running'" type="button" @click="control('pause')">⏸ Pause</button>
+        <button v-if="worker.state !== 'running' && !starting" type="button" @click="control('play')">▶ Play</button>
+        <button v-if="worker.state !== 'stopped'" type="button" @click="control('stop')">■ Stop</button>
+      </div>
       <p>
         <template v-if="health.seconds_per_job">{{ health.seconds_per_job.toFixed(1) }} s per job</template>
         <template v-else>No extractions measured yet</template>
         · {{ health.queue }} queued
-        <template v-if="health.nights != null"> · {{ health.nights.toFixed(1) }} nights to clear</template>
+        <template v-if="health.hours != null"> · {{ health.hours.toFixed(1) }} hours to clear</template>
         <template v-for="flag in health.model_flags" :key="flag"> · <span class="flag">{{ flag }}</span></template>
       </p>
       <p v-if="health.last_run">
         Last run {{ minute(health.last_run.started_at) }}: {{ health.last_run.fetched }} requests,
         {{ health.last_run.new_sightings }} new sightings, {{ health.last_run.new_jobs }} new jobs,
-        {{ health.last_run.removed_by_code }} removed by code, {{ health.last_run.extracted }} extracted,
-        {{ health.last_run.removed_after_extraction }} removed after extraction, {{ health.last_run.failed }} failed.
+        {{ health.last_run.removed_by_code }} removed by code.
       </p>
       <p>
         Boards:

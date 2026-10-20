@@ -59,7 +59,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | dupe_pairs | job_a, job_b, title_sim, desc_sim, verdict, decided_by | Borderline duplicates waiting for the model |
 | company_aliases | alias_norm, company_norm | Hand-kept company name aliases |
 | fetch_log | source_id, url, status, bytes, ms, at, error | Every request, for politeness and health |
-| runs | id, started_at, ended_at, counts (JSON) | One row per nightly run |
+| runs | id, started_at, ended_at, counts (JSON) | One row per nightly run (fetching only) |
 | packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
 | settings | key, value | Last list visit, current crawl id |
 
@@ -71,9 +71,9 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 
 ## The nightly run
 
-The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobhunt nightly" at 01:00. Two workers share the database and run side by side: the fetch worker uses the network, the model worker uses the processor. Only one model worker runs at a time (an OS lock on data/model.lock): one started by hand that is still working the queue keeps it, and the nightly run's model worker steps aside.
+The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobhunt nightly" at 01:00. The nightly run only fetches; the model worker is a separate process that is always on. The two share the database and never call each other: fetching queues jobs, and the worker takes them.
 
-**Fetch worker, 01:00 to 05:00.** At 05:00 it stops; each source saves its cursor and resumes there the next night.
+**Fetching, 01:00 to 05:00.** At 05:00 it stops; each source saves its cursor and resumes there the next night.
 
 1. Pick the sources and boards that are due (board tiers decide which boards).
 2. Collect new postings only (see Collectors).
@@ -81,17 +81,21 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 4. Dedupe levels 1 and 2: attach to an existing job or create a new one.
 5. New jobs that pass the code rules enter the model queue with their prescore.
 
-**Model worker, 01:00 to 07:30.** It starts no new call after 07:30 and always takes the highest-priority work first:
+**At 05:00:** formula scoring, the run summary and the backup. Then the run ends.
+
+**Model worker, always on.** "jobhunt process" is started at logon by its own scheduled task, hidden, and never stops by itself. It always takes the highest-priority work first:
 
 1. Packets for jobs the candidate marked apply
 2. Borderline duplicate pairs
 3. Extraction of queued jobs, highest prescore first
 
-**At 07:30:** removal rules on the night's new facts, formula scoring, and the run summary. The list page shows the result when the candidate opens it.
+Each extraction applies the removal rules and the formula to that job, so the list page shows it as soon as it is done. With no work left, the worker looks again every minute. Only one model worker runs at a time (an OS lock on data/model.lock); a second one leaves the queue to the first and exits. When the model server fails, the worker waits a minute and tries again.
 
-**The first night is bigger.** Everything open is new, so the first pull and the first extraction backlog spread over several nights, each continuing where the last stopped.
+**Pause, Stop, Play** on the Health page. Pause lets the worker finish the task it has, then it takes no more (it looks every 5 seconds whether it may go on). Stop ends the worker's process at once; the job it had stays queued. Stop also leaves it paused, so a worker started again, at the next logon say, waits too. Play unpauses it, and starts a worker when none is running.
 
-**By hand, any time:** "jobhunt process" runs the model worker until no work is left ("--minutes 60" sets a limit); "jobhunt collect --source NAME" runs one source; "jobhunt packet JOB_ID" drafts one packet now; "jobhunt rescore" re-applies the formula in seconds, with no model calls.
+**The first night is bigger.** Everything open is new, so the first pull and the extraction backlog take a while; the worker keeps going until the queue is empty.
+
+**By hand, any time:** "jobhunt process --minutes 60" runs a worker for an hour when the always-on one is not running; "jobhunt collect --source NAME" runs one source; "jobhunt packet JOB_ID" drafts one packet now; "jobhunt rescore" re-applies the formula in seconds, with no model calls.
 
 ## Fetching and politeness
 
@@ -226,11 +230,11 @@ The model only reads postings and fills in facts. It never scores: scoring is a 
 
 **Validation.** Invalid JSON or a schema failure gets one retry, with the error message added to the prompt. A second failure marks the job extract_failed. It stays in the list with a "check" badge and shows on the health view.
 
-**Server failures.** A server error or lost connection is retried after 30 s, then 2 minutes, then 5 minutes; a crashed model engine restarts on the next request. The model worker stops for the night only when all four attempts fail. A request the server refuses (a 4xx, such as a prompt longer than its context) skips that one task instead, and so does a reply the server cuts off because the model looped ("prediction aborted, token repeat limit reached"): that gets one more try straight away, then the job is marked extract_failed and the queue goes on.
+**Server failures.** A server error or lost connection is retried after 30 s, then 2 minutes, then 5 minutes; a crashed model engine restarts on the next request. When all four attempts fail, the worker waits a minute and starts again. A request the server refuses (a 4xx, such as a prompt longer than its context) skips that one task instead, and so does a reply the server cuts off because the model looped ("prediction aborted, token repeat limit reached"): that gets one more try straight away, then the job is marked extract_failed and the queue goes on.
 
 **Versioning.** Each job stores the prompt version behind its facts. A new prompt never re-runs old jobs by itself; "jobhunt reextract --since DATE" does it on request.
 
-**Throughput** is logged per call. The health view shows seconds per job and how many nights the current queue will take.
+**Throughput** is logged per call. The health view shows seconds per job and how many hours of model time the current queue will take.
 
 ## Removal after extraction
 
@@ -309,7 +313,7 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | View | Shows |
 | --- | --- |
 | Jobs | every job in one table, best first (at most 500 at a time), narrowed by filters; see The jobs table |
-| Health | per-source status (see Health and errors), and the last backup with a "Back up now" button |
+| Health | the model worker's state with Pause, Stop and Play; per-source status (see Health and errors); and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
 | Skills | every skill the kept jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
@@ -369,8 +373,8 @@ The Health view shows each source's last run, status, requests, new jobs, errors
 
 - **Blocked:** fail_streak above 0, or disabled after 3.
 - **Parser broken:** requests succeeded but parsed postings dropped to 0, on a source that averages 5 or more new jobs a night. This also catches a site that changed its layout.
-- **Extraction failing:** more than 10% of the night's extractions failed.
-- **Model behind:** the queue holds more than 3 nights of measured throughput.
+- **Extraction failing:** more than 10% of the last 200 extraction calls failed.
+- **Model behind:** the queue holds more than 24 hours of measured throughput.
 
 Every collector runs inside its own error boundary: one broken site is logged and skipped, and never stops the run.
 

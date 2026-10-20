@@ -1,7 +1,7 @@
-"""The nightly run: a fetch worker and a model worker side by side, then scoring and the summary.
+"""The nightly run fetches every due source until fetch_stop, then scores, writes the summary and backs up.
 
-The fetch worker uses the network until fetch_stop; the model worker uses the processor
-until model_stop and always takes the highest-priority work first.
+The model worker is its own always-on process ("jobhunt process"). It takes the highest-priority work
+whenever there is any, so it extracts what the fetch queues without being started for it.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -47,30 +46,16 @@ def next_clock(after: datetime, hhmm: str) -> datetime:
 def nightly(cfg: Config) -> dict[str, Any]:
     started = datetime.now().astimezone()
     fetch_stop = next_clock(started, cfg.schedule["fetch_stop"])
-    model_stop = next_clock(fetch_stop, cfg.schedule["model_stop"])
     conn = db.connect(cfg.db_path)
     run_id = conn.execute("INSERT INTO runs (started_at) VALUES (?)", (db.utc_now(),)).lastrowid
     gaz = Gazetteer.from_geonames(cfg.geonames_dir)
 
-    fetch_done = threading.Event()
     results: dict[str, Any] = {}
-
-    def fetch_worker() -> None:
-        try:
-            results["sources"] = collect(cfg, gaz, deadline=fetch_stop.timestamp(), run_started=started)
-        except Exception:
-            log.exception("fetch worker failed")
-        finally:
-            fetch_done.set()
-
-    fetch_thread = threading.Thread(target=fetch_worker, name="fetch-worker")
-    fetch_thread.start()
     try:
-        results["model"] = process(cfg, gaz, stop_at=model_stop.timestamp(), fetch_done=fetch_done)
+        results["sources"] = collect(cfg, gaz, deadline=fetch_stop.timestamp(), run_started=started)
     except Exception:
-        log.exception("model worker failed")
+        log.exception("fetch failed")
     finally:
-        fetch_thread.join()
         counts = finalize(conn, cfg, gaz, run_id, started, results)
         conn.close()
     if cfg.backup_nightly:
@@ -79,7 +64,7 @@ def nightly(cfg: Config) -> dict[str, Any]:
     return counts
 
 
-# --- fetch worker ---------------------------------------------------------------------------------
+# --- fetching ---------------------------------------------------------------------------------
 
 
 def collect(
@@ -227,20 +212,39 @@ def _open_job_texts(cfg: Config) -> Iterator[tuple[int, str]]:
 
 
 Task = tuple[str, Any]  # ("packet", job_id), ("pair", (a, b)), ("extract", job_id)
+PAUSED = "model_paused"  # a setting: "1" while the Health page has the worker paused
+PAUSED_CHECK_S = 5  # how often a paused worker looks whether it may go on
 
 
-def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, fetch_done: threading.Event | None = None) -> dict[str, int]:
+def is_paused(conn: sqlite3.Connection) -> bool:
+    return db.get_setting(conn, PAUSED) == "1"
+
+
+def process(cfg: Config, gaz: Gazetteer, *, stop_at: float, idle_s: float | None = None,
+            doing: str = "model worker") -> dict[str, int]:
     """Take model work by priority until stop_at; starts no new call after it.
 
     1. packets for jobs marked apply  2. borderline duplicate pairs  3. extraction, highest prescore first
-    A task that fails is skipped for the rest of the run; only a failing server stops the worker.
+    A task that fails is skipped for the rest of the run. Without idle_s the worker stops when no work is
+    left, when it is paused, or when the model server fails. With it, it looks again every idle_s seconds
+    instead (every few seconds while paused), so it never stops by itself. `doing` is its Activity note.
     """
     counts = {"packets": 0, "pairs": 0, "extracted": 0, "extract_failed": 0, "removed": 0}
     with _model_lock(cfg.db_path.parent / "model.lock") as only_worker:
         if not only_worker:
             log.info("a model worker is already running; the queue is left to it")
             return counts
-        return _work_queue(cfg, gaz, stop_at, fetch_done, counts)
+        conn = db.connect(cfg.db_path)
+        try:
+            # Written only by the worker holding the queue, so the pid in it is the one to stop.
+            with db.activity(conn, "run:process", doing):
+                while True:
+                    _work_queue(cfg, gaz, stop_at, idle_s, counts)
+                    if idle_s is None or time.time() + idle_s >= stop_at:
+                        return counts
+                    time.sleep(idle_s)  # the model server failed; try it again
+        finally:
+            conn.close()
 
 
 @contextmanager
@@ -271,24 +275,30 @@ def _lock_file(handle: IO[bytes], *, lock: bool) -> None:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB if lock else fcntl.LOCK_UN)
 
 
-def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, fetch_done: threading.Event | None,
-                counts: dict[str, int]) -> dict[str, int]:
+def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, idle_s: float | None, counts: dict[str, int]) -> None:
     conn = db.connect(cfg.db_path)
     try:
         llm = LLM(cfg, conn)
     except LLMError as exc:
         log.error("model worker not started: %s", exc)
         conn.close()
-        return counts
+        return
     skipped: set[Task] = set()
     try:
         while time.time() < stop_at:
+            if is_paused(conn):
+                if idle_s is None or time.time() + PAUSED_CHECK_S >= stop_at:
+                    break
+                db.set_activity(conn, "model", "paused")
+                time.sleep(PAUSED_CHECK_S)
+                continue
             reload_skills(cfg)  # levels changed on the Skills page apply from the next job on
             task = _next_task(conn, skipped)
             if task is None:
-                if fetch_done is None or fetch_done.is_set():
+                if idle_s is None or time.time() + idle_s >= stop_at:
                     break
-                fetch_done.wait(30)  # the fetch worker may still queue jobs
+                db.set_activity(conn, "model", "waiting for work")  # rewritten each look, so it never goes stale
+                time.sleep(idle_s)
                 continue
             try:
                 _run_task(conn, llm, cfg, gaz, task, counts)
@@ -305,7 +315,6 @@ def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, fetch_done: threadi
         db.clear_activity(conn, "model")
         llm.close()
         conn.close()
-    return counts
 
 
 def _next_task(conn: sqlite3.Connection, skipped: set[Task]) -> Task | None:
@@ -394,7 +403,7 @@ def _mark_extract_failed(conn: sqlite3.Connection, cfg: Config, gaz: Gazetteer, 
     counts["extract_failed"] += 1
 
 
-# --- 07:30: scoring, the summary ------------------------------------------------------------
+# --- after fetching: scoring, the summary ------------------------------------------------------------
 
 
 def finalize(
@@ -412,16 +421,11 @@ def finalize(
     }
     for source_id, tally in sources.items():
         tally["requests"] = requests.get(source_id, 0)
-    model = results.get("model", {})
     counts = {
         "fetched": sum(requests.values()),
         "new_sightings": sum(t["new_sightings"] for t in sources.values()),
         "new_jobs": sum(t["new_jobs"] for t in sources.values()),
         "removed_by_code": sum(t["code_removed"] for t in sources.values()),
-        "extracted": model.get("extracted", 0),
-        "removed_after_extraction": model.get("removed", 0),
-        "failed": model.get("extract_failed", 0),
-        "model": model,
         "sources": sources,
     }
     conn.execute("UPDATE runs SET ended_at = ?, counts = ? WHERE id = ?", (db.utc_now(), db.dumps(counts), run_id))

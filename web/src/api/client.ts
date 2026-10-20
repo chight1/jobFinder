@@ -9,6 +9,7 @@ export type Schemas = components["schemas"];
 export type JobCard = Schemas["JobCard"];
 export type JobDetail = Schemas["JobDetail"];
 export type Health = Schemas["Health"];
+export type ModelWorker = Schemas["ModelWorker"];
 export type Activity = Schemas["Activity"];
 export type TablePage = Schemas["TablePage"];
 export type JobList = Schemas["JobList"];

@@ -324,6 +324,48 @@ def test_a_killed_process_leaves_no_running_note(client, conn):
     assert "run:nightly" not in running and "run:process" in running
 
 
+# --- the model worker's controls ---
+
+
+def test_the_worker_reads_as_stopped_when_none_is_running(client):
+    assert client.get("/api/model").json() == {"state": "stopped", "doing": None}
+
+
+def test_a_pause_waits_for_the_current_task(client, conn):
+    db.set_activity(conn, "run:process", "model worker, always on")  # this process stands in for the worker
+    db.set_activity(conn, "model", "extracting #1 Backend Engineer")
+    assert client.get("/api/model").json()["state"] == "running"
+    assert client.post("/api/model/pause").json() == {"state": "pausing", "doing": "extracting #1 Backend Engineer"}
+    db.set_activity(conn, "model", "paused")
+    assert client.get("/api/model").json()["state"] == "paused"
+
+
+def test_stop_ends_the_worker_and_leaves_it_paused(client, conn):
+    worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        conn.execute("INSERT INTO activity (worker, doing, since, pid) VALUES ('run:process', 'model worker', ?, ?)",
+                     (db.utc_now(), worker.pid))
+        assert client.post("/api/model/stop").json()["state"] == "stopped"
+        assert worker.wait(timeout=10) != 0  # ended, not finished
+        assert db.get_setting(conn, "model_paused") == "1"
+        assert conn.execute("SELECT * FROM activity").fetchall() == []
+    finally:
+        worker.kill()
+
+
+def test_play_starts_a_worker_only_when_none_is_running(client, conn, monkeypatch):
+    started = []
+    monkeypatch.setattr("jobhunt.processes.start_detached", lambda args, cwd: started.append(args))
+    db.set_setting(conn, "model_paused", "1")
+    client.post("/api/model/play")
+    assert db.get_setting(conn, "model_paused") == "0"
+    assert len(started) == 1 and started[0][-1] == "process"
+
+    db.set_activity(conn, "run:process", "model worker")  # now one is running: Play only unpauses
+    client.post("/api/model/play")
+    assert len(started) == 1
+
+
 # --- data and packets ---
 
 

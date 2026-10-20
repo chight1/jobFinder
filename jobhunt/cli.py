@@ -17,6 +17,7 @@ from jobhunt import db
 from jobhunt.config import Config
 
 GEONAMES = "https://download.geonames.org/export/dump/"
+QUEUE_CHECK_S = 60  # how often an idle model worker looks for new work
 GEONAMES_FILES = ("countryInfo.txt", "admin1CodesASCII.txt", "cities15000.zip")
 
 
@@ -26,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     commands.add_parser("init", help="create folders and the database, load sources.csv, download GeoNames")
-    commands.add_parser("nightly", help="the full nightly run")
+    commands.add_parser("nightly", help="the nightly fetch: every due source, then scoring and the backup")
 
     collect = commands.add_parser("collect", help="run the collectors now")
     collect.add_argument("--source", help="one source id from sources.csv")
@@ -36,8 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     discover = commands.add_parser("discover", help="find company boards in Common Crawl and the company lists")
     discover.add_argument("--force", action="store_true", help="re-read the current crawl")
 
-    process = commands.add_parser("process", help="run the model worker now")
-    process.add_argument("--minutes", type=float, help="stop after this long (default: when no work is left)")
+    process = commands.add_parser("process", help="the model worker: works the queue and waits for more")
+    process.add_argument("--minutes", type=float, help="stop after this long (default: never)")
 
     commands.add_parser("rescore", help="re-apply the fact rules and the formula; no model calls")
 
@@ -178,13 +179,9 @@ def cmd_process(cfg: Config, args: argparse.Namespace) -> int:
     if args.minutes:
         stop_at, doing = time.time() + args.minutes * 60, f"model worker, {args.minutes:g} minutes"
     else:
-        stop_at, doing = float("inf"), "model worker, until the queue is empty"
-    conn = _connect(cfg)
-    try:
-        with db.activity(conn, "run:process", doing):
-            print(process(cfg, _gazetteer(cfg), stop_at=stop_at))
-    finally:
-        conn.close()
+        stop_at, doing = float("inf"), "model worker, always on"
+    _connect(cfg).close()
+    print(process(cfg, _gazetteer(cfg), stop_at=stop_at, idle_s=QUEUE_CHECK_S, doing=doing))
     return 0
 
 
@@ -206,7 +203,7 @@ def cmd_reextract(cfg: Config, args: argparse.Namespace) -> int:
         (since,),
     ).rowcount
     conn.close()
-    print(f"queued {count} jobs; the next model window extracts them ('jobhunt process' to start now)")
+    print(f"queued {count} jobs; the model worker takes them within a minute")
     return 0
 
 

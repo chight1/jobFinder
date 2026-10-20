@@ -92,6 +92,7 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 
 .view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .view-head h1 { font-size: var(--big); margin: 8px 0; }
+.model-worker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .empty, .muted { color: var(--muted); }
 

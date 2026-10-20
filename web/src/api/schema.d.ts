@@ -129,6 +129,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Model
+         * @description Whether the model worker is running, paused or stopped. The Health page asks every few seconds.
+         */
+        get: operations["model_model_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause Model
+         * @description The worker finishes the task it has, then takes no more until Play.
+         */
+        post: operations["pause_model_model_pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Model
+         * @description End the worker at once, mid-task; the job it had stays queued. It stays paused, so a worker
+         *     started again (at logon, say) waits for Play.
+         */
+        post: operations["stop_model_model_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model/play": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Play Model
+         * @description Unpause the worker, or start one when none is running.
+         */
+        post: operations["play_model_model_play_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sources/{source_id}/enable": {
         parameters: {
             query?: never;
@@ -499,10 +580,10 @@ export interface components {
             /** Queue */
             queue: number;
             /**
-             * Nights
-             * @description Nights the queue takes at that speed
+             * Hours
+             * @description Hours of model time the queue takes at that speed
              */
-            nights: number | null;
+            hours: number | null;
             /**
              * Model Flags
              * @description extraction failing, model behind
@@ -759,6 +840,20 @@ export interface components {
             /** Error */
             error: string | null;
         };
+        /** ModelWorker */
+        ModelWorker: {
+            /**
+             * State
+             * @description pausing: paused, but still finishing the task it had; stopped: no worker is running
+             * @enum {string}
+             */
+            state: "running" | "pausing" | "paused" | "stopped";
+            /**
+             * Doing
+             * @description Its Activity note, e.g. 'extracting #42 Backend Engineer'
+             */
+            doing: string | null;
+        };
         /** Moved */
         Moved: {
             /**
@@ -863,21 +958,6 @@ export interface components {
              * @default 0
              */
             removed_by_code: number;
-            /**
-             * Extracted
-             * @default 0
-             */
-            extracted: number;
-            /**
-             * Removed After Extraction
-             * @default 0
-             */
-            removed_after_extraction: number;
-            /**
-             * Failed
-             * @default 0
-             */
-            failed: number;
         };
         /** SightingRow */
         SightingRow: {
@@ -1333,6 +1413,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    model_model_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelWorker"];
+                };
+            };
+        };
+    };
+    pause_model_model_pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelWorker"];
+                };
+            };
+        };
+    };
+    stop_model_model_stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelWorker"];
+                };
+            };
+        };
+    };
+    play_model_model_play_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelWorker"];
                 };
             };
         };

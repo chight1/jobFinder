@@ -9,7 +9,6 @@ sources_csv = "sources.csv"
 [schedule]
 start = "01:00"  # when the OS scheduler starts "jobhunt nightly"
 fetch_stop = "05:00"
-model_stop = "07:30"
 
 [fetch]
 user_agent = "Mozilla/5.0 (compatible; jobhunt/0.1; personal job search)"
