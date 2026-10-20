@@ -283,7 +283,7 @@ input::placeholder { color: var(--muted); }
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 30;  /* over the cards and an open filter menu */
+  z-index: 30;  /* over the cards */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -297,26 +297,50 @@ input::placeholder { color: var(--muted); }
 .undo-bar .dismiss { padding: 0 8px; color: var(--muted); background: none; border-color: transparent; }
 
 .search { display: flex; gap: 4px; }
-.list-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.filters .rate { padding: 0 8px 0 0; }
-.filter { position: relative; }
-.filter button[aria-expanded="true"] { border-color: var(--text); }
-.filter-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 20;  /* over the cards */
-  min-width: 100%;
-  padding: 4px 0;
-  white-space: nowrap;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+
+/* The jobs page: a filter rail beside the list. The page widens by the rail, so the cards keep their width. */
+main:has(.jobs-layout) { max-width: 1220px; }
+.jobs-layout { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 24px; align-items: start; }
+.filter-rail {
+  position: sticky;
+  top: 64px;  /* just under the top bar */
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;  /* open sections taller than the window scroll in the rail */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 4px 16px 0;
 }
-.filter-menu label { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; }
-.filter-menu label:hover { background: var(--raised); }
-.filter-menu input { min-height: 0; padding: 0; margin: 0; accent-color: var(--text); }
+.filter-rail .chip { align-self: flex-start; }
+.results-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.results-bar h1 { font-size: var(--big); margin: 8px 0; }
+.results-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .jobs-layout { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .filter-rail { position: static; max-height: none; padding-top: 0; }
+}
+
+/* One filter as a section that opens and closes; closed, its heading still says what is on. */
+.filters { display: flex; flex-direction: column; }
+.filters .rate { padding: 0 0 8px; }
+.filter-section { border-top: 1px solid var(--line-soft); }
+.filter-section summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.filter-section summary::-webkit-details-marker { display: none; }
+.filter-section summary::before { content: "▸"; color: var(--muted); }
+.filter-section[open] summary::before { content: "▾"; }
+.filter-name { font-weight: 600; }
+.filter-summary { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.filter-options { padding: 0 0 8px; }
+.filter-options label { display: flex; align-items: center; gap: 8px; padding: 2px 4px; border-radius: var(--radius); cursor: pointer; }
+.filter-options label:hover { background: var(--raised); }
+.filter-options input { min-height: 0; padding: 0; margin: 0; accent-color: var(--text); }
 .add-skill { margin: 8px 0 12px; }
 
 /* Skill level pickers: 3 green, 2 yellow, 1 red; not in the profile stays plain. */

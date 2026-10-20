@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
 import { toggled, type FilterState } from "../filters";
-import FilterMenu from "./FilterMenu.vue";
+import FilterSection from "./FilterSection.vue";
 
-// The jobs table's filters on one line: a filter shown as dots is a row of dots like the rating dots
-// on a card (each option's key is then its color, and a filled-in dot is on); every other filter is a
-// dropdown checklist. A change flips one option in the query string.
+// The jobs table's filters, down the rail: a filter shown as dots is a row of dots like the rating
+// dots on a card (each option's key is then its color, and a filled-in dot is on); every other filter
+// is a section with a checklist. A change flips one option in the query string.
 defineProps<{ filters: FilterState[] }>();
 const route = useRoute();
 const router = useRouter();
@@ -29,7 +29,7 @@ const flip = (filter: FilterState, option: string) => router.replace({ query: to
           @click="flip(filter, option.key)"
         ></button>
       </div>
-      <FilterMenu v-else :filter="filter" @flip="flip(filter, $event)" />
+      <FilterSection v-else :filter="filter" @flip="flip(filter, $event)" />
     </template>
   </div>
 </template>

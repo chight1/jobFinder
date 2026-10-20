@@ -105,6 +105,21 @@ async function poll() {
 timer = window.setTimeout(poll, POLL_MS);
 onUnmounted(() => window.clearTimeout(timer));
 
+// The first three postings' links, one per line, to paste somewhere in one go.
+const TOP_LINKS = 3;
+const copiedTop = ref(false);
+async function copyTopLinks() {
+  const urls = (list.value?.jobs ?? []).slice(0, TOP_LINKS).map((job) => job.url);
+  try {
+    await navigator.clipboard.writeText(urls.join("\n"));
+    copiedTop.value = true;
+    announce(`Copied ${urls.length} ${urls.length === 1 ? "link" : "links"}`);
+    setTimeout(() => (copiedTop.value = false), 1500);
+  } catch {
+    announce("Could not copy the links");
+  }
+}
+
 const withoutSkill = () => {
   const { skill: _, ...rest } = route.query;
   return { query: rest };
@@ -112,48 +127,59 @@ const withoutSkill = () => {
 </script>
 
 <template>
-  <header class="view-head">
-    <h1>
-      Jobs
-      <span v-if="list" class="count">
-        {{ list.total }}<template v-if="list.jobs.length < list.total">, best {{ list.jobs.length }} shown</template>
-      </span>
-    </h1>
-    <!-- One group, so the controls wrap together rather than split around a long count. -->
-    <div class="list-controls">
+  <!-- Filters in a rail on the left; the results bar above the list says how many and holds what
+       acts on the list as a whole. On a narrow window the rail sits on top. -->
+  <div class="jobs-layout">
+    <aside class="filter-rail" aria-label="Filters">
       <FilterBar v-if="list" :filters="list.filters" />
-      <div class="segmented" role="group" aria-label="Sort">
-        <button
-          v-for="option in SORTS"
-          :key="option.key"
-          type="button"
-          :aria-pressed="sort === option.key"
-          @click="sortBy(option.key)"
-        >{{ option.label }}</button>
-      </div>
       <RouterLink v-if="route.query.skill" class="chip" :to="withoutSkill()" :aria-label="`Stop filtering by ${route.query.skill}`">
         Skill: {{ route.query.skill }} ×
       </RouterLink>
-    </div>
-  </header>
+    </aside>
 
-  <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
-  <template v-else-if="list">
-    <p v-if="!list.jobs.length" class="empty">No jobs match the filters.</p>
-    <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="changed">
-      <p v-if="job.removal_rule" class="removal">
-        Removed: <strong>{{ job.removal_rule }}</strong><template v-if="job.removal_quote">: “{{ job.removal_quote }}”</template>
-      </p>
-      <p v-if="job.status !== 'none'" class="status-line">
-        <strong>{{ statusName(job.status) }}</strong> since {{ job.status_at?.slice(0, 10) }}
-        <template v-if="job.follow_up_on">
-          · follow up <span :class="{ due: job.follow_up_on <= today }">{{ job.follow_up_on }}</span>
-        </template>
-      </p>
-      <div class="actions">
-        <CardButtons :job="job" @changed="changed" />
-      </div>
-    </JobTile>
-  </template>
+    <div class="jobs-main">
+      <header class="results-bar">
+        <h1>
+          Jobs
+          <span v-if="list" class="count">
+            {{ list.total }}<template v-if="list.jobs.length < list.total">, best {{ list.jobs.length }} shown</template>
+          </span>
+        </h1>
+        <div class="results-actions">
+          <div class="segmented" role="group" aria-label="Sort">
+            <button
+              v-for="option in SORTS"
+              :key="option.key"
+              type="button"
+              :aria-pressed="sort === option.key"
+              @click="sortBy(option.key)"
+            >{{ option.label }}</button>
+          </div>
+          <button type="button" :disabled="!list?.jobs.length" @click="copyTopLinks">
+            {{ copiedTop ? "Copied" : `Copy top ${TOP_LINKS} links` }}
+          </button>
+        </div>
+      </header>
+
+      <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
+      <template v-else-if="list">
+        <p v-if="!list.jobs.length" class="empty">No jobs match the filters.</p>
+        <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="changed">
+          <p v-if="job.removal_rule" class="removal">
+            Removed: <strong>{{ job.removal_rule }}</strong><template v-if="job.removal_quote">: “{{ job.removal_quote }}”</template>
+          </p>
+          <p v-if="job.status !== 'none'" class="status-line">
+            <strong>{{ statusName(job.status) }}</strong> since {{ job.status_at?.slice(0, 10) }}
+            <template v-if="job.follow_up_on">
+              · follow up <span :class="{ due: job.follow_up_on <= today }">{{ job.follow_up_on }}</span>
+            </template>
+          </p>
+          <div class="actions">
+            <CardButtons :job="job" @changed="changed" />
+          </div>
+        </JobTile>
+      </template>
+    </div>
+  </div>
   <UndoBar :undo="undo" @done="undoDone" />
 </template>

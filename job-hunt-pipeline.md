@@ -127,7 +127,7 @@ Every collector has the same two calls and never touches the database. A runner 
 
 The runner compares the returned ids with the database: new ids become sightings and known ids get last_seen_at.
 
-**No closed postings.** A job missing from a list is not taken as gone: most sources show only their newest jobs, so absence says nothing. Jobs are never marked closed; a dead posting is found by opening it, and marked not interested.
+**No closed postings.** A job missing from a list is not taken as gone: most sources show only their newest jobs, so absence says nothing. Jobs are never marked closed; a dead posting is found by opening it, and dropped.
 
 | Collector | Request | Paging | Detail fetch |
 | --- | --- | --- | --- |
@@ -316,13 +316,13 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 | Packet (#id) | the application packet drafted for a job marked apply |
 
-**The jobs table** works like a ServiceNow list: one table of every job, and filters instead of separate lists. Each filter is a set of on/off options, any combination, and a job shows when an option that is on matches it in every filter. The filters live in jobhunt/web/filters.py, each option with its own SQL condition; the API's query parameters and the page's filter bar are both built from that list, so a new filter is one entry there. The filters sit on one line beside the heading: rating as dots, every other filter as a dropdown checklist whose button says what is on ("Status: No status", "Any", "3 of 7").
+**The jobs table** works like a ServiceNow list: one table of every job, and filters instead of separate lists. Each filter is a set of on/off options, any combination, and a job shows when an option that is on matches it in every filter. The filters live in jobhunt/web/filters.py, each option with its own SQL condition; the API's query parameters and the page's filter bar are both built from that list, so a new filter is one entry there. The filters sit in a rail left of the list, which stays in view and scrolls on its own: rating as dots, every other filter as a section that opens to a checklist and, closed, says what is on ("No status", "Any", "3 of 7"); the browser remembers which sections are open. Above the list, a results bar holds the count, the sort, and "Copy top 3 links" (the first three postings' links, one per line). On a narrow window the rail sits above the list.
 
 | Filter | Options (on by default in bold) |
 | --- | --- |
 | Rating | **green**, **yellow**, **red**, **not rated**, shown as dots like the card's rating dots |
 | Japanese | Japanese, **not Japanese**: the model's answer, or the candidate's move by hand |
-| Status | **no status**, to apply, applied, interviewing, rejected, ghosted, not interested |
+| Status | **no status**, to apply, applied, interviewing, rejected, ghosted, drop |
 | Removed | **kept**, then one option per removal rule |
 | Source | **every source that has given us a job**; a job shows while any source it was seen on is on |
 
@@ -330,7 +330,7 @@ A plain /jobs is the open list, best first; "Recently changed" (?sort=changed) p
 
 Workers report what they are doing in an activity table as they go, with their process id. A note whose process has exited (killed, or out of memory) is left off the Activity page; a live one left untouched for 30 minutes is flagged, since it may be stuck.
 
-**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, Restore on a removed job (not a blacklisted one: those come back from the Blacklist page), and Blacklist on any job that names its employer. The current status shows filled in; clicking it again clears it.
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and drop before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, Restore on a removed job (not a blacklisted one: those come back from the Blacklist page), and Blacklist on any job that names its employer. The current status shows filled in; clicking it again clears it.
 
 **Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status, and a rated job gets a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page.
 

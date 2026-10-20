@@ -1,3 +1,4 @@
+import type { LocationQuery } from "vue-router";
 import type { JobCard } from "./api/client";
 
 export type Status = JobCard["status"];
@@ -14,7 +15,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   interviewing: "Interviewing",
   rejected: "Rejected",
   ghosted: "Ghosted",
-  not_interested: "Not interested",
+  not_interested: "Drop",
 };
 
 export const statusName = (status: Status): string => STATUS_LABELS[status];
@@ -25,10 +26,11 @@ export const statusIn =
   (job: JobCard): boolean =>
     statuses.includes(job.status);
 
-/** The jobs table narrowed to the jobs asking for one skill; Japanese ones too when asked. */
-export const skillLink = (key: string, withJapanese = false) => ({
+/** The jobs table narrowed to the jobs asking for one skill; Japanese ones too when asked. From the
+ * jobs table itself, its query comes along, so the other filters stay as they are. */
+export const skillLink = (key: string, withJapanese = false, keep: LocationQuery = {}) => ({
   path: "/jobs",
-  query: { skill: key, ...(withJapanese ? { japanese: ["japanese", "not_japanese"] } : {}) },
+  query: { ...keep, skill: key, ...(withJapanese ? { japanese: ["japanese", "not_japanese"] } : {}) },
 });
 
 /** "unicorn" to "Unicorn": for values shown as labels. */

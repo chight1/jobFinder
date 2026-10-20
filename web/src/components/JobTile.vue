@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobCard } from "../api/client";
 import type { Undo } from "../cardButtons";
@@ -13,6 +13,7 @@ import { capitalized, RATINGS, skillLink, type Rating } from "../jobs";
 // its undo, since its filters may no longer let the job through.
 const props = defineProps<{ job: JobCard; fresh?: boolean }>();
 const emit = defineEmits<{ changed: [undo: Undo] }>();
+const route = useRoute();
 
 /** Picking a dot's color again clears it, so one post sets a color or clears it. */
 async function postRating(color: Rating): Promise<boolean> {
@@ -126,7 +127,7 @@ const levelTitle = computed(() =>
           :key="i"
           class="chip"
           :data-level="skill.level"
-          :to="skillLink(skill.key)"
+          :to="skillLink(skill.key, false, route.query)"
           :title="skill.level ? `In your profile, level ${skill.level}` : 'Not in your profile'"
         >{{ skill.name }}<span v-if="skill.level" class="sr-only">, your level {{ skill.level }}</span></RouterLink>
       </p>

@@ -17,7 +17,7 @@ test("a job already shown is not added twice", () => {
 
 test("status names", () => {
   expect(statusName("apply")).toBe("To apply");
-  expect(statusName("not_interested")).toBe("Not interested");
+  expect(statusName("not_interested")).toBe("Drop");
   expect(statusName("none")).toBe("No status");
 });
 
@@ -28,7 +28,7 @@ test("today is local", () => {
 test("a card shows only the buttons whose rule holds", () => {
   const shown = (status: JobCard["status"], stage = "kept") =>
     CARD_BUTTONS.filter((b) => b.shows({ status, stage } as JobCard)).map((b) => b.label);
-  expect(shown("none")).toEqual(["To apply", "Applied", "Not interested", "Japanese"]);
+  expect(shown("none")).toEqual(["To apply", "Applied", "Drop", "Japanese"]);
   expect(shown("applied")).toEqual(["Applied", "Interviewing", "Rejected", "Ghosted", "Japanese"]);
   expect(shown("ghosted", "japanese")).toEqual(["Interviewing", "Rejected", "Ghosted", "Not Japanese"]);
   expect(shown("rejected", "extract_failed")).toEqual(["Rejected"]);

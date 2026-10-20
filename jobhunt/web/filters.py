@@ -52,7 +52,7 @@ STATUS_LABELS = {
     "interviewing": "Interviewing",
     "rejected": "Rejected",
     "ghosted": "Ghosted",
-    "not_interested": "Not interested",
+    "not_interested": "Drop",
 }
 
 
