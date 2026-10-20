@@ -15,3 +15,4 @@ export type JobList = Schemas["JobList"];
 export type JobsQuery = NonNullable<paths["/jobs"]["get"]["parameters"]["query"]>;
 export type SkillsPage = Schemas["SkillsPage"];
 export type SkillRow = Schemas["SkillRow"];
+export type BlacklistEntry = Schemas["BlacklistEntry"];

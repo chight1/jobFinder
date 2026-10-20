@@ -132,6 +132,21 @@ section h3 { font-size: var(--body); margin: 12px 0 4px; }
 .job-title { min-width: 0; }
 .job h2 { font-size: var(--title); line-height: 1.35; margin: 0; }
 .job h2 a { color: var(--text); }
+/* A small icon before the title that copies the posting's link. */
+.copy-link {
+  display: inline-flex;
+  min-height: 0;
+  margin-right: 4px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  vertical-align: -1px;
+  cursor: pointer;
+}
+.copy-link:hover { color: var(--text); background: var(--raised); }
+.copy-link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .company-line { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0 !important; }
 .company { color: var(--muted); }
 .pay { font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -262,7 +277,27 @@ input::placeholder { color: var(--muted); }
   font-weight: 600;
 }
 
+/* The last change, to take back: pinned to the bottom of the window, over the cards. */
+.undo-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;  /* over the cards and an open filter menu */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.undo-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-bar .dismiss { padding: 0 8px; color: var(--muted); background: none; border-color: transparent; }
+
 .search { display: flex; gap: 4px; }
+.list-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .filters .rate { padding: 0 8px 0 0; }
 .filter { position: relative; }

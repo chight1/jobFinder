@@ -12,7 +12,7 @@ from typing import Annotated, Any, Callable, Iterator, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from jobhunt import db, profile_file, rules, score
+from jobhunt import blacklist, db, profile_file, rules, score
 from jobhunt.backup import backup
 from jobhunt.collectors import PostingGone
 from jobhunt.collectors.runner import fill_detail
@@ -118,6 +118,7 @@ class JobCard(BaseModel):
 class JobsQuery(filters.FilterQuery):  # one model for every query parameter, as FastAPI wants
     skill: str | None = Field(None, description="Only the jobs asking for this skill, under any spelling")
     after: str | None = Field(None, description="An earlier reply's `now`: only the jobs listed since")
+    sort: Literal["score", "changed"] = Field("score", description="Best first, or the jobs the candidate changed last first")
 
 
 class JobList(BaseModel):
@@ -282,6 +283,9 @@ class Packet(BaseModel):
 
 class StatusChange(BaseModel):
     status: Status
+    # An undo puts the earlier status back as it was, so it passes both of these back too.
+    status_at: str | None = Field(None, description="When the status was set; now when left out")
+    follow_up_on: str | None = Field(None, description="Taken as given when status_at is; else set by applied")
 
 
 class StatusSaved(BaseModel):
@@ -308,6 +312,27 @@ class Moved(BaseModel):
 
 class Restored(BaseModel):
     stage: str = Field(description="queued for a code-removed job, else the stage its facts now give")
+
+
+class BlacklistEntry(BaseModel):
+    company_norm: str = Field(description="The employer as dedupe compares it; the key to remove it by")
+    company: str
+    added_at: str
+    hidden: int = Field(description="Jobs from this employer the blacklist hides")
+
+
+class Blacklisted(BaseModel):
+    company: str
+    company_norm: str = Field(description="The blacklist's key, to take the employer off again")
+    hidden: int = Field(description="Stored jobs from this employer that were hidden")
+
+
+class Unblacklist(BaseModel):
+    company_norm: str
+
+
+class Unblacklisted(BaseModel):
+    restored: int = Field(description="Jobs that came back")
 
 
 # --- shared by the endpoints ------------------------------------------------------------------------
@@ -475,7 +500,9 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
             where += " AND j.listed_at > ? AND j.listed_at <= ?"
             params += [query.after, now]
         total = conn.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params).fetchone()[0]
-        found = cards(conn, where, params, f"j.score IS NULL, j.score DESC, j.first_seen_at DESC LIMIT {MAX_JOBS}")
+        best = "j.score IS NULL, j.score DESC, j.first_seen_at DESC"
+        order = f"j.changed_at IS NULL, j.changed_at DESC, {best}" if query.sort == "changed" else best
+        found = cards(conn, where, params, f"{order} LIMIT {MAX_JOBS}")
         return JobList(jobs=found, total=total, now=now, filters=states)
 
     @api.get("/jobs/{job_id}")
@@ -580,17 +607,23 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
     @api.post("/jobs/{job_id}/status")
     def set_status(job_id: int, body: StatusChange, conn: Conn) -> StatusSaved:
         """Set a job's status. "none" clears it, and the job goes back to the lists as if never marked.
-        Marking a job applied sets a follow-up date."""
+        Marking a job applied sets a follow-up date. An undo passes the earlier status's time and
+        follow-up date, which are then stored as given."""
+        now = db.utc_now()
         if body.status == "none":
-            conn.execute("UPDATE jobs SET status = 'none', status_at = NULL, follow_up_on = NULL WHERE id = ?",
-                         (job_id,))
+            conn.execute("UPDATE jobs SET status = 'none', status_at = NULL, follow_up_on = NULL, changed_at = ? "
+                         "WHERE id = ?", (now, job_id))
+        elif body.status_at:
+            conn.execute("UPDATE jobs SET status = ?, status_at = ?, follow_up_on = ?, changed_at = ? WHERE id = ?",
+                         (body.status, body.status_at, body.follow_up_on, now, job_id))
         else:
             follow_up = None
             if body.status == "applied":
                 follow_up = (date.today() + timedelta(days=int(cfg.list["follow_up_days"]))).isoformat()
             conn.execute(
-                "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = COALESCE(?, follow_up_on) WHERE id = ?",
-                (body.status, db.utc_now(), follow_up, job_id),
+                "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = COALESCE(?, follow_up_on), changed_at = ? "
+                "WHERE id = ?",
+                (body.status, now, follow_up, now, job_id),
             )
         row = conn.execute("SELECT status_at, follow_up_on FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row is None:
@@ -604,7 +637,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         if row is None:
             raise HTTPException(404, f"no job #{job_id}")
         new = None if row["rating"] == body.rating else body.rating
-        conn.execute("UPDATE jobs SET rating = ? WHERE id = ?", (new, job_id))
+        conn.execute("UPDATE jobs SET rating = ?, changed_at = ? WHERE id = ?", (new, db.utc_now(), job_id))
         return RatingSaved(rating=new)
 
     @api.post("/jobs/{job_id}/japanese")
@@ -612,8 +645,9 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         """Move a job to the Japanese list or the main one, whatever the model said. It stays put when
         the job is scored again."""
         with db.transaction(conn):
-            if not conn.execute("UPDATE jobs SET japanese_override = ? WHERE id = ? AND stage IN ('kept', 'japanese')",
-                                (int(body.japanese), job_id)).rowcount:
+            if not conn.execute("UPDATE jobs SET japanese_override = ?, changed_at = ? "
+                                "WHERE id = ? AND stage IN ('kept', 'japanese')",
+                                (int(body.japanese), db.utc_now(), job_id)).rowcount:
                 raise HTTPException(404, "no kept or Japanese job with that id")
             stage = score.apply_facts(conn, conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone(),
                                       cfg, gazetteer())
@@ -629,7 +663,8 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         restored = db.dumps(sorted(set(db.loads(job["restored_rules"], [])) | {job["removal_rule"]}))
         if job["stage"] == "removed":
             with db.transaction(conn):
-                conn.execute("UPDATE jobs SET restored_rules = ? WHERE id = ?", (restored, job_id))
+                conn.execute("UPDATE jobs SET restored_rules = ?, changed_at = ? WHERE id = ?",
+                             (restored, db.utc_now(), job_id))
                 stage = score.apply_facts(conn, conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone(),
                                           cfg, gazetteer())
         else:
@@ -654,9 +689,39 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
         )
         conn.execute(
             "UPDATE jobs SET stage = 'queued', removal_rule = NULL, removal_quote = NULL, restored_rules = ?, "
-            "prescore = ? WHERE id = ?",
-            (restored, prescore, job["id"]),
+            "prescore = ?, changed_at = ? WHERE id = ?",
+            (restored, prescore, db.utc_now(), job["id"]),
         )
+
+    # --- blacklist ---
+
+    @api.get("/blacklist")
+    def blacklisted(conn: Conn) -> list[BlacklistEntry]:
+        """Every blacklisted employer, newest first."""
+        return [BlacklistEntry(**entry) for entry in blacklist.entries(conn)]
+
+    @api.post("/jobs/{job_id}/blacklist")
+    def blacklist_employer(job_id: int, conn: Conn) -> Blacklisted:
+        """Blacklist this job's employer: its jobs are hidden now, and the ones later runs find are
+        code-removed."""
+        job = conn.execute(
+            "SELECT j.company_norm, s.company_raw FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id "
+            "WHERE j.id = ?", (job_id,),
+        ).fetchone()
+        if job is None:
+            raise HTTPException(404, f"no job #{job_id}")
+        if not job["company_norm"]:
+            raise HTTPException(400, "this job names no employer")
+        hidden = blacklist.add(conn, job["company_norm"], job["company_raw"])
+        return Blacklisted(company=job["company_raw"], company_norm=job["company_norm"], hidden=hidden)
+
+    @api.post("/blacklist/remove")
+    def unblacklist(body: Unblacklist, conn: Conn) -> Unblacklisted:
+        """Take an employer off the blacklist; its jobs come back where they were."""
+        restored = blacklist.remove(conn, cfg, gazetteer(), body.company_norm)
+        if restored is None:
+            raise HTTPException(404, "that employer is not on the blacklist")
+        return Unblacklisted(restored=restored)
 
     # --- skills ---
 

@@ -8,6 +8,7 @@ const tabs: { name: string; to: string }[] = [
   { name: "Jobs", to: "/jobs" },
   { name: "Skills", to: "/skills" },
   { name: "Health", to: "/health" },
+  { name: "Blacklist", to: "/blacklist" },
   { name: "Activity", to: "/activity" },
   { name: "Data", to: "/data" },
 ];

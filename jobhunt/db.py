@@ -220,6 +220,22 @@ MIGRATIONS: list[str] = [
     -- The process that wrote an activity note, so a killed one's note is not shown as running forever.
     ALTER TABLE activity ADD COLUMN pid INTEGER;
     """,
+    """
+    -- Employers the candidate never wants to see. Their jobs are code-removed ("blacklisted"), now and in later runs.
+    CREATE TABLE blacklist (
+        company_norm TEXT PRIMARY KEY,   -- dedupe.company_norm: lower case, legal suffixes gone
+        company TEXT NOT NULL,           -- the name as a posting gave it, for the list page
+        added_at TEXT NOT NULL
+    );
+    """,
+    """
+    -- When the candidate last changed a job by hand (status, rating, list, restore, blacklist), for the
+    -- "Recently changed" sort. Jobs changed before this start from their status's time or their blacklisting.
+    ALTER TABLE jobs ADD COLUMN changed_at TEXT;
+    UPDATE jobs SET changed_at = status_at WHERE status_at IS NOT NULL;
+    UPDATE jobs SET changed_at = (SELECT b.added_at FROM blacklist b WHERE b.company_norm = jobs.company_norm)
+        WHERE removal_rule = 'blacklisted' AND changed_at IS NULL;
+    """,
 ]
 
 

@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, shallowRef, watch } from "vue";
 import { type LocationQuery, RouterLink, useRoute, useRouter } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobList, type JobsQuery } from "../api/client";
+import type { Undo } from "../cardButtons";
 import CardButtons from "../components/CardButtons.vue";
 import FilterBar from "../components/FilterBar.vue";
 import JobTile from "../components/JobTile.vue";
+import UndoBar from "../components/UndoBar.vue";
 import { insertByScore, localToday, statusName } from "../jobs";
 
 // The jobs table: every job, narrowed by filters, best first. The API holds the filters and says which
 // options are on; the choice lives in the query string, and this browser remembers the last one, so a bare
 // /jobs (the Jobs tab) opens where the candidate left off. The page adds jobs as the model finishes them, and asks
-// again after a button changes a job, since the job may no longer pass the filters.
+// again after a button changes a job, since the job may no longer pass the filters; the undo bar then
+// offers to take the change back. The list is best first, or the jobs changed last first.
 const route = useRoute();
 const router = useRouter();
 const POLL_MS = 10_000;
@@ -21,6 +24,14 @@ const list = ref<JobList | null>(null);
 const failed = ref(false);
 const fresh = ref(new Set<number>());
 const today = localToday();
+
+const SORTS = [
+  { key: "score", label: "Best first" },
+  { key: "changed", label: "Recently changed" },
+] as const;
+const sort = computed(() => (route.query.sort === "changed" ? "changed" : "score"));
+const sortBy = (key: (typeof SORTS)[number]["key"]) =>
+  router.replace({ query: { ...route.query, sort: key === "score" ? undefined : key } });
 
 const fetchJobs = (after?: string) =>
   api.GET("/jobs", { params: { query: { ...(route.query as JobsQuery), after } } });
@@ -60,11 +71,23 @@ watch(() => route.query, () => {
   load();
 });
 
-// Every 10 seconds, ask for the jobs listed since the last answer.
+// The last change made from a card, for the undo bar; a change without an undo (Restore) clears it.
+const undo = shallowRef<Undo | null>(null);
+function changed(change?: Undo) {
+  undo.value = change ?? null;
+  load();
+}
+function undoDone(undone: boolean) {
+  undo.value = null;
+  if (undone) load();
+}
+
+// Every 10 seconds, ask for the jobs listed since the last answer. Sorted by changes, new jobs would
+// land at the bottom anyway, so they wait for the next load.
 let timer: number | undefined;
 async function poll() {
   try {
-    const shown = list.value;
+    const shown = sort.value === "score" ? list.value : null;
     const { data } = shown ? await fetchJobs(shown.now) : { data: undefined };
     if (shown && data) {
       const arrived = data.jobs.filter((job) => !shown.jobs.some((other) => other.id === job.id));
@@ -96,16 +119,28 @@ const withoutSkill = () => {
         {{ list.total }}<template v-if="list.jobs.length < list.total">, best {{ list.jobs.length }} shown</template>
       </span>
     </h1>
-    <FilterBar v-if="list" :filters="list.filters" />
-    <RouterLink v-if="route.query.skill" class="chip" :to="withoutSkill()" :aria-label="`Stop filtering by ${route.query.skill}`">
-      Skill: {{ route.query.skill }} ×
-    </RouterLink>
+    <!-- One group, so the controls wrap together rather than split around a long count. -->
+    <div class="list-controls">
+      <FilterBar v-if="list" :filters="list.filters" />
+      <div class="segmented" role="group" aria-label="Sort">
+        <button
+          v-for="option in SORTS"
+          :key="option.key"
+          type="button"
+          :aria-pressed="sort === option.key"
+          @click="sortBy(option.key)"
+        >{{ option.label }}</button>
+      </div>
+      <RouterLink v-if="route.query.skill" class="chip" :to="withoutSkill()" :aria-label="`Stop filtering by ${route.query.skill}`">
+        Skill: {{ route.query.skill }} ×
+      </RouterLink>
+    </div>
   </header>
 
   <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
   <template v-else-if="list">
     <p v-if="!list.jobs.length" class="empty">No jobs match the filters.</p>
-    <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="load">
+    <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="changed">
       <p v-if="job.removal_rule" class="removal">
         Removed: <strong>{{ job.removal_rule }}</strong><template v-if="job.removal_quote">: “{{ job.removal_quote }}”</template>
       </p>
@@ -116,8 +151,9 @@ const withoutSkill = () => {
         </template>
       </p>
       <div class="actions">
-        <CardButtons :job="job" @changed="load" />
+        <CardButtons :job="job" @changed="changed" />
       </div>
     </JobTile>
   </template>
+  <UndoBar :undo="undo" @done="undoDone" />
 </template>

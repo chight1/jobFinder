@@ -124,6 +124,20 @@ def test_applied_sets_a_follow_up_date(client):
     assert titles(client, status=["applied"]) == ["Backend Engineer"]
 
 
+def test_an_undo_puts_the_earlier_status_back_as_it_was(client):
+    client.post("/api/jobs/1/status", json={"status": "interviewing"})
+    earlier = {"status": "applied", "status_at": "2026-10-01T09:00:00Z", "follow_up_on": "2026-10-15"}
+    assert client.post("/api/jobs/1/status", json=earlier).json() == earlier  # not stamped now
+
+
+def test_recently_changed_puts_the_last_job_changed_first(client, conn):
+    worse = _add_job(conn, "Globex", "globex", "Platform Engineer")
+    conn.execute("UPDATE jobs SET stage = 'kept', score = 1 WHERE id = ?", (worse,))
+    assert titles(client) == ["Backend Engineer", "Platform Engineer"]  # best first
+    client.post(f"/api/jobs/{worse}/rating", json={"rating": "green"})
+    assert titles(client, sort="changed") == ["Platform Engineer", "Backend Engineer"]
+
+
 # --- removed jobs ---
 
 
@@ -139,6 +153,50 @@ def test_restore_judges_a_read_job_again(client, conn):
     assert client.post("/api/jobs/1/restore").json()["stage"] == "kept"  # the rule never removes it again
     assert titles(client) == ["Backend Engineer"]
     assert client.post("/api/jobs/1/restore").status_code == 404  # no longer removed
+
+
+# --- the blacklist ---
+
+
+def _add_job(conn, company: str, company_norm: str, title: str) -> int:
+    """A job the model has not read yet."""
+    now = db.utc_now()
+    sighting = conn.execute(
+        "INSERT INTO sightings (source_id, external_id, url, title, company_raw, location_raw, first_seen_at, "
+        "last_seen_at) VALUES ('tokyodev', ?, ?, ?, ?, 'Tokyo', ?, ?)",
+        (title, f"https://example.com/{title}", title, company, now, now),
+    ).lastrowid
+    job = conn.execute(
+        "INSERT INTO jobs (company_norm, title_norm, city_norm, primary_sighting_id, stage, first_seen_at) "
+        "VALUES (?, ?, 'tokyo', ?, 'queued', ?)",
+        (company_norm, title.lower(), sighting, now),
+    ).lastrowid
+    conn.execute("UPDATE sightings SET job_id = ? WHERE id = ?", (job, sighting))
+    return job
+
+
+def test_blacklisting_an_employer_hides_its_jobs_until_it_is_taken_off(client, conn):
+    unread = _add_job(conn, "Acme", "acme", "Frontend Engineer")
+    other = _add_job(conn, "Globex", "globex", "Platform Engineer")
+
+    assert client.post("/api/jobs/1/blacklist").json() == {"company": "Acme", "company_norm": "acme", "hidden": 2}
+    stages = dict(conn.execute("SELECT id, stage || ':' || COALESCE(removal_rule, '') FROM jobs").fetchall())
+    assert stages == {1: "code_removed:blacklisted", unread: "code_removed:blacklisted", other: "queued:"}
+    assert titles(client) == []
+    assert [(e["company"], e["hidden"]) for e in client.get("/api/blacklist").json()] == [("Acme", 2)]
+
+    assert client.post("/api/blacklist/remove", json={"company_norm": "acme"}).json() == {"restored": 2}
+    stages = dict(conn.execute("SELECT id, stage FROM jobs").fetchall())
+    assert stages == {1: "kept", unread: "queued", other: "queued"}  # judged again from its facts, or queued
+    assert titles(client) == ["Backend Engineer"]
+    assert client.get("/api/blacklist").json() == []
+    assert client.post("/api/blacklist/remove", json={"company_norm": "acme"}).status_code == 404
+
+
+def test_a_job_without_an_employer_cannot_blacklist_one(client, conn):
+    nameless = _add_job(conn, "", "", "Backend Engineer II")
+    assert client.post(f"/api/jobs/{nameless}/blacklist").status_code == 400
+    assert client.post("/api/jobs/999/blacklist").status_code == 404
 
 
 # --- the Japanese list ---

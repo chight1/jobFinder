@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { JobCard } from "../api/client";
-import { CARD_BUTTONS, type CardButton } from "../cardButtons";
+import { CARD_BUTTONS, type CardButton, type Undo } from "../cardButtons";
 
 // A card's buttons as one segmented control: the ones whose rule says they show for this job.
+// A press tells the page, with the undo for it.
 const props = defineProps<{ job: JobCard }>();
-const emit = defineEmits<{ changed: [] }>();
+const emit = defineEmits<{ changed: [undo?: Undo] }>();
 const busy = ref(false);
 
 async function press(button: CardButton) {
   busy.value = true;
   try {
-    await button.click(props.job);
-    emit("changed");
+    emit("changed", await button.click(props.job));
   } catch {
     // The server is down or restarting; clicking again retries.
   } finally {

@@ -78,6 +78,15 @@ def test_new_jobs_removed_or_queued(conn, cfg, gaz):
 
 
 
+def test_a_blacklisted_employers_new_jobs_are_code_removed(conn, cfg, gaz):
+    runner = _setup(conn, cfg, gaz, {BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo")]}})
+    runner.s.blacklist = frozenset({"acme"})
+    assert _run(runner, conn).code_removed == 1
+    removed = conn.execute("SELECT stage, removal_rule, removal_quote FROM jobs").fetchone()
+    assert tuple(removed) == ("code_removed", "blacklisted", "Acme")
+    assert f"{BOARD_URL}/1" not in runner.s.fetcher.requests  # cut before its detail fetch
+
+
 def test_a_repost_joins_its_job_only_while_recently_seen(conn, cfg, gaz):
     responses = {
         BOARD_URL: {"jobs": [_job(1, "Backend Engineer", "Tokyo")]},

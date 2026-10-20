@@ -1,31 +1,52 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { announce } from "../announce";
 import { api, type JobCard } from "../api/client";
+import type { Undo } from "../cardButtons";
 import { capitalized, RATINGS, skillLink, type Rating } from "../jobs";
 
 // One job as a card. Every card has the same layout, so the eye learns where each thing is:
 // the score in its box; title, then company and pay; one line of facts (where, language and your
 // level in it, years asked); the skills; the page's own actions (the slot); then where it was seen
-// and a link to the details. The rating dots save at once; the page then hears of the change, since
-// its filters may no longer let the job through.
+// and a link to the details. The rating dots save at once; the page then hears of the change, with
+// its undo, since its filters may no longer let the job through.
 const props = defineProps<{ job: JobCard; fresh?: boolean }>();
-const emit = defineEmits<{ changed: [] }>();
+const emit = defineEmits<{ changed: [undo: Undo] }>();
+
+/** Picking a dot's color again clears it, so one post sets a color or clears it. */
+async function postRating(color: Rating): Promise<boolean> {
+  const { data } = await api.POST("/jobs/{job_id}/rating", {
+    params: { path: { job_id: props.job.id } },
+    body: { rating: color },
+  });
+  if (data) props.job.rating = data.rating ?? null;
+  return Boolean(data);
+}
 
 async function rate(color: Rating) {
+  const before = props.job.rating;
   try {
-    const { data } = await api.POST("/jobs/{job_id}/rating", {
-      params: { path: { job_id: props.job.id } },
-      body: { rating: color },
-    });
-    if (data) {
-      props.job.rating = data.rating ?? null;
-      announce(data.rating ? `Rated ${data.rating}` : "Rating cleared");
-      emit("changed");
-    }
+    if (!(await postRating(color))) return;
+    const message = props.job.rating ? `Rated ${props.job.rating}: ${props.job.title}` : `Rating cleared: ${props.job.title}`;
+    announce(message);
+    // Unrated before: posting the new color again clears it. Rated before: posting the old one sets it.
+    emit("changed", { message, revert: () => postRating(before ?? color) });
   } catch {
     // The server is down or restarting; clicking again retries.
+  }
+}
+
+// The posting's link to the clipboard; the icon turns to a check for a moment.
+const copied = ref(false);
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText(props.job.url);
+    copied.value = true;
+    announce("Link copied");
+    setTimeout(() => (copied.value = false), 1500);
+  } catch {
+    announce("Could not copy the link");
   }
 }
 
@@ -45,6 +66,19 @@ const levelTitle = computed(() =>
       <header class="job-head">
         <div class="job-title">
           <h2>
+            <button
+              type="button"
+              class="copy-link"
+              :title="copied ? 'Copied' : 'Copy link'"
+              :aria-label="copied ? 'Link copied' : 'Copy link'"
+              @click="copyLink"
+            >
+              <svg v-if="!copied" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="5" y="5" width="8.5" height="8.5" rx="1.5" />
+                <path d="M3 10.5V3.5A1.5 1.5 0 0 1 4.5 2h6" />
+              </svg>
+              <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" /></svg>
+            </button>
             <a :href="job.url" target="_blank" rel="noreferrer">{{ job.title }}</a>
             <span v-for="badge in job.badges" :key="badge" class="badge" :class="badge">{{ capitalized(badge) }}</span>
           </h2>

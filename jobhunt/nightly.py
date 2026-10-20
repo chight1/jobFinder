@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Iterator
 
-from jobhunt import collectors, db, packets, score
+from jobhunt import blacklist, collectors, db, packets, score
 from jobhunt.backup import backup
 from jobhunt.collectors.runner import Runner, Shared, Tally, record_outcome
 from jobhunt.config import Config, reload_skills
@@ -104,6 +104,7 @@ def collect(
         aliases={r["alias_norm"]: r["company_norm"] for r in conn.execute("SELECT * FROM company_aliases")},
         source_kinds={r["id"]: r["kind"] for r in conn.execute("SELECT id, kind FROM sources")},
         agency_index=AgencyIndex(lambda: _open_job_texts(cfg)),
+        blacklist=blacklist.names(conn),
         dry_run=dry_run,
     )
     conn.close()

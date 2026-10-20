@@ -181,7 +181,8 @@ export interface paths {
         /**
          * Set Status
          * @description Set a job's status. "none" clears it, and the job goes back to the lists as if never marked.
-         *     Marking a job applied sets a follow-up date.
+         *     Marking a job applied sets a follow-up date. An undo passes the earlier status's time and
+         *     follow-up date, which are then stored as given.
          */
         post: operations["set_status_jobs__job_id__status_post"];
         delete?: never;
@@ -246,6 +247,67 @@ export interface paths {
          *     again from its facts; a code-removed one goes to the model queue.
          */
         post: operations["restore_jobs__job_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/blacklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Blacklisted
+         * @description Every blacklisted employer, newest first.
+         */
+        get: operations["blacklisted_blacklist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}/blacklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Blacklist Employer
+         * @description Blacklist this job's employer: its jobs are hidden now, and the ones later runs find are
+         *     code-removed.
+         */
+        post: operations["blacklist_employer_jobs__job_id__blacklist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/blacklist/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unblacklist
+         * @description Take an employer off the blacklist; its jobs come back where they were.
+         */
+        post: operations["unblacklist_blacklist_remove_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -330,6 +392,38 @@ export interface components {
              * @description The data repository it commits to
              */
             folder: string;
+        };
+        /** BlacklistEntry */
+        BlacklistEntry: {
+            /**
+             * Company Norm
+             * @description The employer as dedupe compares it; the key to remove it by
+             */
+            company_norm: string;
+            /** Company */
+            company: string;
+            /** Added At */
+            added_at: string;
+            /**
+             * Hidden
+             * @description Jobs from this employer the blacklist hides
+             */
+            hidden: number;
+        };
+        /** Blacklisted */
+        Blacklisted: {
+            /** Company */
+            company: string;
+            /**
+             * Company Norm
+             * @description The blacklist's key, to take the employer off again
+             */
+            company_norm: string;
+            /**
+             * Hidden
+             * @description Stored jobs from this employer that were hidden
+             */
+            hidden: number;
         };
         /** DupePair */
         DupePair: {
@@ -960,6 +1054,16 @@ export interface components {
              * @enum {string}
              */
             status: "none" | "apply" | "applied" | "interviewing" | "rejected" | "ghosted" | "not_interested";
+            /**
+             * Status At
+             * @description When the status was set; now when left out
+             */
+            status_at?: string | null;
+            /**
+             * Follow Up On
+             * @description Taken as given when status_at is; else set by applied
+             */
+            follow_up_on?: string | null;
         };
         /** StatusSaved */
         StatusSaved: {
@@ -1000,6 +1104,19 @@ export interface components {
             tables: {
                 [key: string]: number;
             };
+        };
+        /** Unblacklist */
+        Unblacklist: {
+            /** Company Norm */
+            company_norm: string;
+        };
+        /** Unblacklisted */
+        Unblacklisted: {
+            /**
+             * Restored
+             * @description Jobs that came back
+             */
+            restored: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -1055,6 +1172,8 @@ export interface operations {
                 skill?: string | null;
                 /** @description An earlier reply's `now`: only the jobs listed since */
                 after?: string | null;
+                /** @description Best first, or the jobs the candidate changed last first */
+                sort?: "score" | "changed";
             };
             header?: never;
             path?: never;
@@ -1390,6 +1509,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Restored"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    blacklisted_blacklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlacklistEntry"][];
+                };
+            };
+        };
+    };
+    blacklist_employer_jobs__job_id__blacklist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Blacklisted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unblacklist_blacklist_remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Unblacklist"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unblacklisted"];
                 };
             };
             /** @description Validation Error */

@@ -318,6 +318,9 @@ class Removal:
     quote: str
 
 
+BLACKLISTED = "blacklisted"  # the code rule for an employer on the blacklist (jobhunt.blacklist)
+
+
 _NON_SOFTWARE = re.compile(
     r"\b(sales|account executive|recruit(er|ing)?|marketing|legal|finance|customer success)\b", re.IGNORECASE
 )

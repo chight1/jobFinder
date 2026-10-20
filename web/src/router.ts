@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import ActivityView from "./views/ActivityView.vue";
+import BlacklistView from "./views/BlacklistView.vue";
 import DataView from "./views/DataView.vue";
 import HealthView from "./views/HealthView.vue";
 import JobsView from "./views/JobsView.vue";
@@ -24,6 +25,7 @@ export const router = createRouter({
     { path: "/packets/:id(\\d+)", component: PacketView, props: id, meta: { title: "Packet" } },
     { path: "/skills", component: SkillsView, meta: { title: "Skills" } },
     { path: "/health", component: HealthView, meta: { title: "Health" } },
+    { path: "/blacklist", component: BlacklistView, meta: { title: "Blacklist" } },
     { path: "/activity", component: ActivityView, meta: { title: "Activity" } },
     { path: "/data", component: DataView, meta: { title: "Data" } },
   ],

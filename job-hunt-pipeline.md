@@ -180,6 +180,8 @@ Language never removes a job: jobs that require Japanese are the backup list (se
 
 **Employment type.** Remove, rule "contract", when the source's own structured field says contract, freelance or temporary (for example Lever's commitment field), or the title starts with "Contract" or "Freelance".
 
+**Blacklisted employer.** Remove, rule "blacklisted", when the employer (compared as dedupe compares companies: lower case, legal suffixes gone) is on the blacklist. A job card's Blacklist button adds its employer and hides that employer's stored jobs at once; the Blacklist page lists the employers with how many jobs each hides, and Remove brings the jobs back where they were: a job the model has read is judged again from its facts, one it never read goes to the model queue.
+
 **Queue order.** A code score decides what the model reads first:
 
 prescore = 3 × location hint + 2 × title hint + 1 × (listed pay at or above the floor) + 1 × (posted within 7 days)
@@ -324,15 +326,15 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Removed | **kept**, then one option per removal rule |
 | Source | **every source that has given us a job**; a job shows while any source it was seen on is on |
 
-A plain /jobs is the open list. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
+A plain /jobs is the open list, best first; "Recently changed" (?sort=changed) puts the jobs the candidate changed by hand last at the top instead (status, rating, list move, restore, blacklist), so one marked by mistake is easy to find. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 
 Workers report what they are doing in an activity table as they go, with their process id. A note whose process has exited (killed, or out of memory) is left off the Activity page; a live one left untouched for 30 minutes is flagged, since it may be stuck.
 
-**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, and Restore on a removed job. The current status shows filled in; clicking it again clears it.
+**Each job row:** score, badges, title, company, place and work mode, pay (original currency and dollars), primary language, reason line, primary link, other sightings, and its buttons as one segmented control. Each button has its own rule for when it shows (web/src/cardButtons.ts): to apply and not interested before applying; applied before it; interviewing after applying or being ghosted; rejected after applying, interviewing or being ghosted; ghosted after applying or interviewing; then Japanese or Not Japanese for the list the job is not on, Restore on a removed job (not a blacklisted one: those come back from the Blacklist page), and Blacklist on any job that names its employer. The current status shows filled in; clicking it again clears it.
 
 **Rating:** three dots in each tile's top-right corner (green, yellow, red) mark how much the candidate likes a job, and clicking the chosen color again clears it. A rating is separate from status, and a rated job gets a matching colored edge, so a long list is easy to scan. The rating saves at once, without reloading the page.
 
-**Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. After any button, the table asks again, so a job its filters no longer let through leaves it.
+**Buttons** set the job's status and time at once, without reloading the page. "Apply" also queues a packet. After any button, the table asks again, so a job its filters no longer let through leaves it. An undo bar at the bottom then names the change for 10 seconds (longer while the pointer or focus is on it) and takes it back: an earlier status returns with its own date and follow-up, a rating or list move goes back, and a blacklisting comes off the list. Restore has no undo, since the job is already on its way to the model.
 
 **Follow-up:** marking a job applied sets a follow-up date, 10 days later by default (set in config.toml). It shows on the job's card.
 

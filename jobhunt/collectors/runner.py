@@ -70,6 +70,7 @@ class Shared:
     aliases: dict[str, str]
     source_kinds: dict[str, str]
     agency_index: AgencyIndex
+    blacklist: frozenset[str] = frozenset()  # company_norm keys of employers whose jobs are always removed
     dry_run: bool = False
     agencies: list[str] = field(init=False)
 
@@ -266,6 +267,8 @@ class Runner:
     # --- rules and keys -----------------------------------------------------------------
 
     def _code_rules(self, summary: Summary) -> rules.Removal | None:
+        if summary.company and company_norm(summary.company, self.s.aliases) in self.s.blacklist:
+            return rules.Removal(rules.BLACKLISTED, summary.company)
         return rules.code_rules(
             title=summary.title,
             location=summary.location,
