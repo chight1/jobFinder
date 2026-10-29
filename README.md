@@ -42,9 +42,10 @@ The full design is in [job-hunt-pipeline.md](job-hunt-pipeline.md).
 
 ## Setup
 
-Requirements: Windows, Python 3.12 or newer, Node 22.12 or newer on an even-numbered release (22, 24, 26),
-and [Ollama](https://ollama.com). The two Task Scheduler tasks are the Windows-specific part; the code has POSIX
-branches where it touches the OS, and the test suite runs on Linux in CI.
+Requirements: Python 3.12 or newer, Node 22.12 or newer on an even-numbered release (22, 24, 26), and
+[Ollama](https://ollama.com). It runs daily on Windows; on Linux only the test suite has run so far, in CI. The
+code has POSIX branches where it touches the OS, and the two Task Scheduler tasks are the only Windows-specific
+setup.
 
 ```powershell
 git clone https://github.com/chight1/jobFinder.git
