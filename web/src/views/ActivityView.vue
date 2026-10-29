@@ -2,6 +2,7 @@
 import { onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { api, type Activity } from "../api/client";
+import { browserZone, clockTime } from "../time";
 
 // What is running right now, queue progress, the latest web requests and model calls, and the end of the
 // log. It asks the server again every 5 seconds while the page is open.
@@ -24,6 +25,7 @@ refresh();
 onUnmounted(() => window.clearTimeout(timer));
 
 const jobId = (detail: string) => detail.slice(1); // a model call's detail is "#123"
+const zone = browserZone();
 </script>
 
 <template>
@@ -65,11 +67,18 @@ const jobId = (detail: string) => detail.slice(1); // a model call's detail is "
       <div v-if="activity.feed.length" class="table-wrap">
         <table class="data">
           <thead>
-            <tr><th>Time (UTC)</th><th>Kind</th><th>Who</th><th>Result</th><th>Seconds</th><th>Detail</th></tr>
+            <tr>
+              <th>Time ({{ zone }})</th>
+              <th>Kind</th>
+              <th>Who</th>
+              <th>Result</th>
+              <th>Seconds</th>
+              <th>Detail</th>
+            </tr>
           </thead>
           <tbody>
             <tr v-for="(event, i) in activity.feed" :key="i" :class="{ flagged: event.bad }">
-              <td>{{ event.at.slice(11, 19) }}</td>
+              <td>{{ clockTime(event.at, zone) }}</td>
               <td>{{ event.kind }}</td>
               <td>{{ event.who }}</td>
               <td>{{ event.what }}</td>
