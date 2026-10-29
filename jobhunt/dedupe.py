@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
-from typing import Callable, Iterable, Literal
+from collections.abc import Callable, Iterable
+from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from datasketch import MinHash, MinHashLSH

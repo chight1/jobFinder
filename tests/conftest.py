@@ -52,11 +52,12 @@ def profile() -> Profile:
 @pytest.fixture
 def cfg(tmp_path: Path, profile: Profile) -> Config:
     """The repository's config.toml with a test profile and a temporary data folder."""
-    loaded = config_module.load(ROOT)
     profile_path = tmp_path / "profile.toml"  # the same skills as the profile fixture, so reloads change nothing
     profile_path.write_text(
+        "years_experience = 5\npay_floor_usd = 100000\n"
         "[skills]\njavascript = 3  # keep this comment\nreact = 3\njava = 2\npython = 1\n", encoding="utf-8"
     )
+    loaded = config_module.load(ROOT, profile_path)
     return dataclasses.replace(
         loaded, profile=profile, profile_path=profile_path, data_dir=tmp_path / "data",
         packets_dir=tmp_path / "packets", resumes_dir=tmp_path / "resumes",

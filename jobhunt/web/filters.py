@@ -13,8 +13,9 @@ are both built from it."""
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, create_model
 

@@ -21,7 +21,8 @@ def set_skill_level(path: Path, name: str, level: int) -> str:
     if not name:
         raise ValueError("skill name is empty")
 
-    doc = tomlkit.parse(path.read_text(encoding="utf-8", newline=""))
+    with open(path, encoding="utf-8", newline="") as f:  # Path.read_text(newline=) needs Python 3.13
+        doc = tomlkit.parse(f.read())
     skills = doc.setdefault("skills", tomlkit.table())
     wanted = canonical_skill(name)
     existing = next((key for key in skills if canonical_skill(key) == wanted), None)

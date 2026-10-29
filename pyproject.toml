@@ -21,13 +21,21 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff==0.17.2"]  # the ruff PR Verify runs
 
 [project.scripts]
 jobhunt = "jobhunt.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["jobhunt*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+    "SIM905",  # a word list reads better as one string with .split() than as a long list literal
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

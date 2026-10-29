@@ -1,0 +1,27 @@
+# Gate (install, build, test, audit) plus a Claude review on pull requests.
+# The gate is plain CI and never involves a model. See github.com/chight1/pr-verify.
+name: pr-verify
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  pr-verify:
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    with:
+      runtime: python
+      runtime-version: '3.12'
+      install-command: pip install -e ".[dev,browser]" pip-audit && npm ci --prefix web
+      build-command: python -m compileall -q jobhunt
+      test-command: pytest
+      audit-command: pip-audit
+    secrets: inherit

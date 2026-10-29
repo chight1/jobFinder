@@ -54,11 +54,12 @@ class Config:
         return self.data_dir / "geonames"
 
 
-def load(root: Path) -> Config:
+def load(root: Path, profile_path: Path | None = None) -> Config:
     root = root.resolve()
+    profile_path = profile_path if profile_path is not None else root / "profile.toml"
     with open(root / "config.toml", "rb") as f:
         raw = tomllib.load(f)
-    with open(root / "profile.toml", "rb") as f:
+    with open(profile_path, "rb") as f:
         prof = tomllib.load(f)
 
     paths = raw["paths"]
@@ -86,7 +87,7 @@ def load(root: Path) -> Config:
         list=raw["list"],
         packets=raw["packets"],
         profile=profile,
-        profile_path=root / "profile.toml",
+        profile_path=profile_path,
         backup_dir=(root / raw["backup"]["repo_dir"]).resolve(),
         backup_nightly=bool(raw["backup"].get("nightly", False)),
     )

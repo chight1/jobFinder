@@ -10,12 +10,13 @@ import logging
 import os
 import sqlite3
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import IO, Any, Iterator
+from typing import IO, Any
 
 from jobhunt import blacklist, collectors, db, packets, score
 from jobhunt.backup import backup
@@ -23,8 +24,15 @@ from jobhunt.collectors.runner import Runner, Shared, Tally, record_outcome
 from jobhunt.config import Config, reload_skills
 from jobhunt.dedupe import AgencyIndex, judge_pair, merge_jobs
 from jobhunt.fetch import DailyCapReached, Fetcher, SourceBlocked
-from jobhunt.llm import (EXTRACT_PROMPT_VERSION, LLM, GenerationAborted, InvalidOutput, LLMError, RequestRejected,
-                         extract)
+from jobhunt.llm import (
+    EXTRACT_PROMPT_VERSION,
+    LLM,
+    GenerationAborted,
+    InvalidOutput,
+    LLMError,
+    RequestRejected,
+    extract,
+)
 from jobhunt.rules import Gazetteer
 from jobhunt.text import to_text
 
@@ -164,7 +172,7 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
                     continue
                 except DailyCapReached:
                     raise
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - one broken board must never end the run
                     log.warning("%s board %s failed: %r", source["id"], board["slug"], exc)
                     board_tally = Tally(errors=1, status=f"stopped: {exc!r}"[:200])
                 tally.add(board_tally)
@@ -304,7 +312,7 @@ def _work_queue(cfg: Config, gaz: Gazetteer, stop_at: float, idle_s: float | Non
                 _run_task(conn, llm, cfg, gaz, task, counts)
             except LLMError:
                 raise
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one broken job must never stop the queue
                 log.warning("model task %s failed: %r", task, exc)
                 skipped.add(task)
                 if task[0] == "extract":

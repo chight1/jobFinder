@@ -11,9 +11,10 @@ import logging
 import re
 import sqlite3
 import time
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from jobhunt import collectors, db

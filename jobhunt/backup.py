@@ -69,8 +69,7 @@ def _write_dump(db_path: Path, target: Path) -> None:
         conn.execute("BEGIN")  # one read transaction: the nightly run may be writing meanwhile
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         with open(target, "w", encoding="utf-8", newline="\n") as f:
-            for line in conn.iterdump():
-                f.write(f"{line}\n")
+            f.writelines(f"{line}\n" for line in conn.iterdump())
             f.write(f"PRAGMA user_version = {version};\n")
         conn.execute("COMMIT")
     finally:
@@ -86,7 +85,7 @@ def _mirror(source: Path, target: Path) -> None:
 
 
 def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    result = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)  # checked below
     if result.returncode != 0:
         raise BackupError(f"git {args[0]}: {(result.stderr or result.stdout).strip()[:300]}")
     return result.stdout.strip()
