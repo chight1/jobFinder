@@ -29,7 +29,7 @@ Python 3.12, one package named jobhunt, one SQLite file and one command-line ent
 | fetch | The only door to the network: per-site rate limits, retries, backoff, raw-page cache | httpx |
 | collectors | One module per collector type, all with the same interface | httpx, selectolax, feedparser |
 | browser | The browser-only sites | Playwright with headless Chromium |
-| discover | Finds company boards in the Common Crawl index | httpx |
+| discover | Finds company boards in the Common Crawl and Wayback Machine indexes | httpx |
 | rules | Code removal rules and the queue score | GeoNames city and country lists |
 | dedupe | Merges sightings into jobs | datasketch (MinHash) |
 | llm | Talks to the local model and validates its output | httpx, pydantic |
@@ -61,7 +61,7 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 | fetch_log | source_id, url, status, bytes, ms, at, error | Every request, for politeness and health |
 | runs | id, started_at, ended_at, counts (JSON) | One row per nightly run (fetching only) |
 | packets | job_id, resume_file, letter, answers (JSON), gaps (JSON), made_at | One per job marked apply |
-| settings | key, value | Last list visit, current crawl id |
+| settings | key, value | Last list visit, the crawl each hiring system was last read from |
 
 **Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A button at the end of each card's buttons moves a job to the other list by hand ("Japanese" on a main-list job, "Not Japanese" on a Japanese one) (japanese_override), which wins over the model's answer and survives a rescore. A failed extraction is extract_failed and stays visible.
 
@@ -116,11 +116,12 @@ Every request goes through the fetch module, so these rules hold everywhere.
 **When a site pushes back:**
 
 1. A 429 ("too many requests") or a 503: wait for the Retry-After header, or 60 s, and retry at most twice.
+   A 502 or 504 (a gateway that timed out) is retried the same way; still failing, it is an ordinary error (6), not a block.
 2. Still failing, a 403 ("forbidden"), or a challenge page (detected by markers such as "captcha" or "Just a moment" in the body): stop that source for the night. Set backoff_until to the next night, double its gap (up to 30 s), and add 1 to fail_streak.
 3. A fail_streak of 3 disables the source and flags it on the health view until the candidate turns it back on.
 4. A clean night resets fail_streak, and the gap halves back toward its default.
 5. No rotating addresses or other ways around a block. A blocked source waits.
-6. Any other error (a bad status, a timeout, a page that will not parse): log it and stop that site for the rest of the run, with no backoff. On Workday each company board is its own site. A posting that is simply gone (404) is not an error.
+6. Any other error (a bad status, a timeout, a page that will not parse): log it and stop that site for the rest of the run, with no backoff. On a hiring system the site is the one company board: the run goes on to the next board, and only pushback (step 2) stops the whole system, except on Workday, where each board is its own site and a block stops only that board. A posting that is simply gone (404) is not an error.
 
 ## Collectors
 
@@ -152,13 +153,17 @@ The runner compares the returned ids with the database: new ids become sightings
 
 ## Company discovery and board tiers
 
-"jobhunt discover" fills the companies table once a month, when a new Common Crawl crawl appears.
+"jobhunt discover" fills the companies table once a month, when a new Common Crawl crawl appears. Common Crawl visits the hiring systems rarely (its 2026-39 crawl held 105 jobs.lever.co pages, 28 boards), so the Wayback Machine's index is read too (below).
 
 1. GET index.commoncrawl.org/collinfo.json and take the newest crawl's index address.
 2. Ask that index for every captured link under each hiring-system pattern: jobs.lever.co/\*, boards.greenhouse.io/\*, job-boards.greenhouse.io/\*, jobs.ashbyhq.com/\*, apply.workable.com/\*, and myworkdayjobs.com as a whole domain. Ask for the page count first (showNumPages=true), then fetch page by page, one request every 2 s.
 3. Take the first path segment of each link as the board slug (the host, tenant and site for Workday). Drop duplicates and insert boards not already known.
-4. Check each new board with one call: a 404 makes it dead, an empty list makes it cold, any jobs make it active.
+4. Check each new board with one call: a 404 makes it dead, an empty list makes it cold, any jobs make it active. A board whose check fails some other way (a 500, a page that will not parse) stays new and is asked again next time; the checks go on to the next board. Pushback (429, 503, 403) ends the checks on that hiring system for the run, except on Workday, where each board is its own site.
 5. The company lists in sources.csv add boards the same way, from the hiring-system links on their pages.
+
+**Wayback Machine.** Its URL index (web.archive.org/cdx/search/cdx) keeps every capture since the 2010s: about 419 index pages for jobs.lever.co alone. Discovery asks it only for board front pages (jobs.lever.co/SLUG, status 200, a server-side filter), one page every 30 s with a 5-minute timeout, since their side scans each page for the filter. A busy answer (502, 503, or 504: a search that timed out on their side) or a lost request (a dropped connection, a timeout) doubles the wait before asking again, up to 30 minutes; from then on it asks once an hour for as long as the index stays busy, and a success starts the wait over at 30 s. Any other failure stops the run. Each page's boards are saved as they come, with the next page number (settings: wayback_page:lever), so a run that stops resumes there; when the last page is in, wayback_read:lever marks it read and later runs skip it ("--force" reads it again). Only Lever is asked for so far. Its boards have found_via = "wayback".
+
+A hiring system counts as read for that crawl (settings: crawl_read:lever and so on) only when all its searches finished, so one that failed is asked again on the next run. "jobhunt discover --ats lever" reads one hiring system and checks only its new boards, without the company lists.
 
 | Tier | Rule | Checked |
 | --- | --- | --- |
@@ -461,4 +466,5 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Remote In Tech | company_list | https://github.com/remoteintech/remote-jobs | Clone the repo |
 | Established Remote | company_list | https://github.com/yanirs/established-remote | README table |
 | Common Crawl URL index | discover | https://index.commoncrawl.org | CDX API with JSON output; prefix queries such as url=jobs.lever.co/\* against the newest crawl (list at index.commoncrawl.org/collinfo.json); re-run monthly when a new crawl lands |
+| Wayback Machine URL index | discover | https://web.archive.org/cdx/search/cdx | CDX API; board front pages only (jobs.lever.co/SLUG), read once and resumed by page |
 | Coral Capital portfolio | company_list | https://coralcap.co/portfolio/?lang=en | Public pages |

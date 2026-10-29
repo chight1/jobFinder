@@ -7,11 +7,11 @@ import time
 
 import pytest
 
-from jobhunt import db
+from jobhunt import db, nightly
 from jobhunt.collectors import Summary
 from jobhunt.collectors.runner import Runner, Shared
 from jobhunt.dedupe import AgencyIndex
-from jobhunt.fetch import SourceBlocked
+from jobhunt.fetch import FetchError, SourceBlocked
 from tests.conftest import ROOT
 from tests.test_collectors import FakeFetcher
 
@@ -195,3 +195,26 @@ def test_same_key_from_second_source_attaches(conn, cfg, gaz):
     primary = conn.execute(
         "SELECT s.source_id FROM jobs j JOIN sightings s ON s.id = j.primary_sighting_id").fetchone()[0]
     assert primary == "greenhouse"
+
+
+class BrokenBoardFetcher(FakeFetcher):
+    """Answers a 500 for one board's list."""
+
+    def get(self, source_id, url, **kwargs):
+        if url == BOARD_URL:
+            self.requests.append(url)
+            raise FetchError("HTTP 500 for " + url, 500)
+        return super().get(source_id, url, **kwargs)
+
+
+def test_a_broken_board_skips_only_that_board(conn, cfg, gaz):
+    globex = "https://boards-api.greenhouse.io/v1/boards/globex/jobs"
+    runner = _setup(conn, cfg, gaz, {})
+    runner.s.fetcher = BrokenBoardFetcher({globex: {"jobs": [_job(1, "Backend Engineer", "Remote")]}})
+    conn.execute("INSERT INTO companies (ats, slug, found_via) VALUES ('greenhouse', 'globex', 'test')")
+    conn.commit()
+    source = conn.execute("SELECT * FROM sources WHERE id = 'greenhouse'").fetchone()
+
+    tally = nightly._run_source(runner.s, source)
+    assert runner.s.fetcher.requests[:2] == [BOARD_URL, globex]  # the next board is still asked
+    assert (tally.errors, tally.parsed) == (1, 1)
