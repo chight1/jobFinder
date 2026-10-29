@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable, Iterator
 from dataclasses import replace
-from typing import Any, Callable, Iterator
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from selectolax.lexbor import LexborHTMLParser

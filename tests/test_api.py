@@ -6,9 +6,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-
-import pytest
-
 from typing import get_args
 
 from jobhunt import db, score

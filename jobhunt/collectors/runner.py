@@ -12,10 +12,11 @@ import hashlib
 import logging
 import sqlite3
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from types import ModuleType
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from jobhunt import collectors, db, rules
 from jobhunt.collectors import BoardGone, Context, Listing, PostingGone, Summary

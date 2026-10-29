@@ -7,10 +7,11 @@ only clear cases. Fact rules run once the model has filled in a job's facts.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from jobhunt import score
 from jobhunt.config import Profile

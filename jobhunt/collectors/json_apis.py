@@ -11,8 +11,9 @@ The lists are newest first. Paged APIs stop at the first page where every id is 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from jobhunt.collectors import Context, Listing, Summary, iso_from_s, join_place
 from jobhunt.collectors.pages import parse_job_page

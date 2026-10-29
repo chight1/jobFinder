@@ -13,12 +13,13 @@ import json
 import random
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
