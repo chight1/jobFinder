@@ -67,7 +67,14 @@ const zone = browserZone();
       <div v-if="activity.feed.length" class="table-wrap">
         <table class="data">
           <thead>
-            <tr><th>Time ({{ zone }})</th><th>Kind</th><th>Who</th><th>Result</th><th>Seconds</th><th>Detail</th></tr>
+            <tr>
+              <th>Time ({{ zone }})</th>
+              <th>Kind</th>
+              <th>Who</th>
+              <th>Result</th>
+              <th>Seconds</th>
+              <th>Detail</th>
+            </tr>
           </thead>
           <tbody>
             <tr v-for="(event, i) in activity.feed" :key="i" :class="{ flagged: event.bad }">
