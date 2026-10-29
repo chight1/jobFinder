@@ -24,8 +24,10 @@ sites) and the candidate's location (Japan) are built into the code.
    cover letter, screening answers, skill gaps) for each job marked to apply.
 
 New company boards are found in the Common Crawl and Wayback Machine URL indexes and checked once before the
-nightly run fetches them. Lever is collected today; collectors for Greenhouse, Ashby, Workday, Workable and
-SmartRecruiters are built and switched off in `sources.csv`.
+nightly run fetches them. Each night 37 sources are collected through six collector types (HTML pages, RSS
+feeds, a headless browser, JSON APIs, Hacker News and Lever): 28 job boards, 6 recruiter sites, 2 company career
+sites, and Lever's public API, which covers over 1,600 live company boards found so far. Collectors for
+Greenhouse, Ashby, Workday, Workable and SmartRecruiters are also built and off by default in `sources.csv`.
 
 The full design is in [job-hunt-pipeline.md](job-hunt-pipeline.md).
 
@@ -41,7 +43,8 @@ The full design is in [job-hunt-pipeline.md](job-hunt-pipeline.md).
 ## Setup
 
 Requirements: Windows, Python 3.12 or newer, Node 22.12 or newer on an even-numbered release (22, 24, 26),
-and [Ollama](https://ollama.com). The test suite also runs on Linux in CI.
+and [Ollama](https://ollama.com). The two Task Scheduler tasks are the Windows-specific part; the code has POSIX
+branches where it touches the OS, and the test suite runs on Linux in CI.
 
 ```powershell
 git clone https://github.com/chight1/jobFinder.git
@@ -102,7 +105,8 @@ Two Task Scheduler tasks keep it running:
 - **jobhunt worker**, at logon, runs `jobhunt process` with no console window (`conhost --headless`), with no
   time limit, and is restarted a minute after it stops.
 
-Register them from the repo folder:
+<details>
+<summary>Register the tasks (PowerShell, from the repo folder)</summary>
 
 ```powershell
 $repo = (Get-Location).Path
@@ -122,6 +126,8 @@ Register-ScheduledTask -TaskName "jobhunt worker" `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -MultipleInstances IgnoreNew)
 ```
+
+</details>
 
 Keep the 01:00 in step with `[schedule] start` in `config.toml`, which records when the nightly run begins.
 
