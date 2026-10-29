@@ -6,10 +6,11 @@ import csv
 import json
 import os
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 # Each entry runs once, in order; PRAGMA user_version records how many have run.
 MIGRATIONS: list[str] = [

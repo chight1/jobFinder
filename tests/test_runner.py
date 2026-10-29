@@ -28,7 +28,7 @@ def _setup(conn, cfg, gaz, responses):
     conn.execute("INSERT INTO companies (ats, slug, found_via) VALUES ('greenhouse', 'acme', 'test')")
     shared = Shared(
         cfg=cfg, gaz=gaz, fetcher=FakeFetcher(responses), deadline=time.time() + 60,  # type: ignore[arg-type]
-        aliases={}, source_kinds={"greenhouse": "employer"}, agency_index=AgencyIndex(lambda: []),
+        aliases={}, source_kinds={"greenhouse": "employer"}, agency_index=AgencyIndex(list),
     )
     return Runner(shared, conn)
 
@@ -104,7 +104,7 @@ def test_a_repost_joins_its_job_only_while_recently_seen(conn, cfg, gaz):
     assert _run(runner, conn).new_jobs == 1  # not seen for years: a new opening
 
 def test_a_long_list_of_places_is_stored_as_anywhere(conn, cfg, gaz):
-    countries = "; ".join(["Tokyo, JP", "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR"])
+    countries = "Tokyo, JP; AF; AX; AL; DZ; AS; AD; AO; AI; AQ; AG; AR"
     responses = {
         BOARD_URL: {"jobs": [_job(1, "Backend Engineer", countries)]},
         f"{BOARD_URL}/1": {"content": "&lt;p&gt;Build APIs.&lt;/p&gt;"},
@@ -136,7 +136,7 @@ def test_a_source_default_location_fills_a_blank_one(conn, cfg, gaz):
     conn.execute("DELETE FROM jobs")
     conn.execute("UPDATE companies SET extra = ? WHERE id = ?", (db.dumps({"fixed_location": "Remote (open to Japan)"}), board["id"]))
     runner.run_board(source, conn.execute("SELECT * FROM companies WHERE slug = 'acme'").fetchone())
-    places = set(r[0] for r in conn.execute("SELECT location_raw FROM sightings"))
+    places = {r[0] for r in conn.execute("SELECT location_raw FROM sightings")}
     assert places == {"Remote (open to Japan)"}  # a fixed one wins over the posting's
 
 

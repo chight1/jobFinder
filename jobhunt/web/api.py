@@ -7,8 +7,9 @@ import logging
 import sqlite3
 import sys
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from datetime import date, datetime, timedelta
-from typing import Annotated, Any, Callable, Iterator, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
