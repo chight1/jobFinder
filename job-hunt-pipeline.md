@@ -6,7 +6,7 @@ A Python program collects job postings every night, cuts the ones the candidate 
 
 **Pipeline at a glance**
 
-1. Collect, nightly: new postings from 60 sources and every company board found
+1. Collect, nightly: new postings from 37 sources and every company board found
 2. Dedupe: one job, many sightings
 3. Code rules: clear cases the candidate can't take go to the removed pile
 4. Extract with the local model: facts only, once per job
