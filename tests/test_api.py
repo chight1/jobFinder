@@ -8,8 +8,8 @@ import subprocess
 import sys
 from typing import get_args
 
-from jobhunt import db, score
-from jobhunt.web import api, filters
+from jobfinder import db, score
+from jobfinder.web import api, filters
 
 
 def titles(client, **params) -> list[str]:
@@ -352,7 +352,7 @@ def test_stop_ends_the_worker_and_leaves_it_paused(client, conn):
 
 def test_play_starts_a_worker_only_when_none_is_running(client, conn, monkeypatch):
     started = []
-    monkeypatch.setattr("jobhunt.processes.start_detached", lambda args, cwd: started.append(args))
+    monkeypatch.setattr("jobfinder.processes.start_detached", lambda args, cwd: started.append(args))
     db.set_setting(conn, "model_paused", "1")
     client.post("/api/model/play")
     assert db.get_setting(conn, "model_paused") == "0"

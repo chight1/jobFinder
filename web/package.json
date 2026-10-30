@@ -1,5 +1,5 @@
 {
-  "name": "jobhunt-web",
+  "name": "jobfinder-web",
   "private": true,
   "type": "module",
   "scripts": {

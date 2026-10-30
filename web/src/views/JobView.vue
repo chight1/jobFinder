@@ -15,12 +15,12 @@ async function load() {
     const { data, response } = await api.GET("/jobs/{job_id}", { params: { path: { job_id: props.id } } });
     if (data) {
       job.value = data;
-      document.title = `Job #${data.id} · jobhunt`;
+      document.title = `Job #${data.id} · jobFinder`;
     } else {
       problem.value = response.status === 404 ? `There is no job #${props.id}.` : "The server could not load this job.";
     }
   } catch {
-    problem.value = "The server did not answer. Is jobhunt serve running?";
+    problem.value = "The server did not answer. Is jobfinder serve running?";
   }
 }
 load();

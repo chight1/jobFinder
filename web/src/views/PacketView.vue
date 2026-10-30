@@ -13,7 +13,7 @@ async function load() {
     if (data) text.value = data.text;
     else problem.value = response.status === 404 ? "No packet for this job yet." : "The server could not load it.";
   } catch {
-    problem.value = "The server did not answer. Is jobhunt serve running?";
+    problem.value = "The server did not answer. Is jobfinder serve running?";
   }
 }
 load();

@@ -9,7 +9,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from jobhunt.web.app import create_app
+from jobfinder.web.app import create_app
 from tests.conftest import ROOT
 
 

@@ -1,8 +1,8 @@
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 
-// `npm run build` writes dist/, which `jobhunt serve` serves. `npm run dev` serves the app on its own
-// port and passes API requests to the running jobhunt server.
+// `npm run build` writes dist/, which `jobfinder serve` serves. `npm run dev` serves the app on its own
+// port and passes API requests to the running jobfinder server.
 export default defineConfig({
   plugins: [vue()],
   server: {

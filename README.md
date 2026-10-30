@@ -29,7 +29,7 @@ feeds, a headless browser, JSON APIs, Hacker News and Lever): 28 job boards, 6 r
 sites, and Lever's public API, which covers over 1,600 live company boards found so far. Collectors for
 Greenhouse, Ashby, Workday, Workable and SmartRecruiters are also built and off by default in `sources.csv`.
 
-The full design is in [job-hunt-pipeline.md](job-hunt-pipeline.md).
+The full design is in [jobfinder-pipeline.md](jobfinder-pipeline.md).
 
 ## Stack
 
@@ -58,7 +58,7 @@ npm ci --prefix web
 npm run build --prefix web
 
 ollama pull gpt-oss:20b
-ollama create gpt-oss-jobhunt -f models/gpt-oss-jobhunt.Modelfile  # the same model with an 8k context
+ollama create gpt-oss-jobfinder -f models/gpt-oss-jobfinder.Modelfile  # the same model with an 8k context
 ```
 
 Create `profile.toml` next to `config.toml`. It holds the candidate's facts and is gitignored:
@@ -80,7 +80,7 @@ forbidden_names = []  # names that must never appear in an application packet
 Then create the folders and the database, load `sources.csv` and download the GeoNames place lists:
 
 ```powershell
-.venv\Scripts\jobhunt init
+.venv\Scripts\jobfinder init
 ```
 
 Settings, the schedule and the scoring weights are in `config.toml`.
@@ -89,21 +89,21 @@ Settings, the schedule and the scoring weights are in `config.toml`.
 
 | Command | What it does |
 | --- | --- |
-| `jobhunt serve` | the web app at http://localhost:8765 |
-| `jobhunt nightly` | fetch every due source until 05:00, then score and back up |
-| `jobhunt process` | the model worker: works the queue, then checks for more every minute |
-| `jobhunt discover` | find new company boards in Common Crawl, the Wayback Machine and company lists |
-| `jobhunt collect` | run the collectors now |
-| `jobhunt rescore` | re-apply the rules and the formula, with no model calls |
-| `jobhunt packet JOB_ID` | draft one application packet now |
+| `jobfinder serve` | the web app at http://localhost:8765 |
+| `jobfinder nightly` | fetch every due source until 05:00, then score and back up |
+| `jobfinder process` | the model worker: works the queue, then checks for more every minute |
+| `jobfinder discover` | find new company boards in Common Crawl, the Wayback Machine and company lists |
+| `jobfinder collect` | run the collectors now |
+| `jobfinder rescore` | re-apply the rules and the formula, with no model calls |
+| `jobfinder packet JOB_ID` | draft one application packet now |
 
-`jobhunt --help` lists the rest.
+`jobfinder --help` lists the rest.
 
 Two Task Scheduler tasks keep it running:
 
-- **jobhunt nightly**, daily at 01:00, runs `jobhunt nightly`. It wakes the computer, and a missed run starts
+- **jobfinder nightly**, daily at 01:00, runs `jobfinder nightly`. It wakes the computer, and a missed run starts
   as soon as it can.
-- **jobhunt worker**, at logon, runs `jobhunt process` with no console window (`conhost --headless`), with no
+- **jobfinder worker**, at logon, runs `jobfinder process` with no console window (`conhost --headless`), with no
   time limit, and is restarted a minute after it stops.
 
 <details>
@@ -111,16 +111,16 @@ Two Task Scheduler tasks keep it running:
 
 ```powershell
 $repo = (Get-Location).Path
-$jobhunt = "$repo\.venv\Scripts\jobhunt.exe"
+$jobfinder = "$repo\.venv\Scripts\jobfinder.exe"
 
-Register-ScheduledTask -TaskName "jobhunt nightly" `
-  -Action (New-ScheduledTaskAction -Execute $jobhunt -Argument "nightly" -WorkingDirectory $repo) `
+Register-ScheduledTask -TaskName "jobfinder nightly" `
+  -Action (New-ScheduledTaskAction -Execute $jobfinder -Argument "nightly" -WorkingDirectory $repo) `
   -Trigger (New-ScheduledTaskTrigger -Daily -At 01:00) `
   -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Hours 8) -MultipleInstances IgnoreNew)
 
-Register-ScheduledTask -TaskName "jobhunt worker" `
-  -Action (New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless `"$jobhunt`" process" `
+Register-ScheduledTask -TaskName "jobfinder worker" `
+  -Action (New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless `"$jobfinder`" process" `
     -WorkingDirectory $repo) `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME") `
   -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `

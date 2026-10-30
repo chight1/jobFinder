@@ -61,7 +61,7 @@ const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
     </nav>
   </header>
 
-  <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
+  <p v-if="failed" class="empty">The server did not answer. Is jobfinder serve running?</p>
 
   <form class="search add-skill" @submit.prevent="addSkill">
     <input v-model="newName" placeholder="Add a skill to your profile" aria-label="Skill name" required>

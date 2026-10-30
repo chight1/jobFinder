@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from jobhunt import backup, db
+from jobfinder import backup, db
 from tests.conftest import ROOT
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobhunt import rules
+from jobfinder import rules
 
 
 @pytest.mark.parametrize(

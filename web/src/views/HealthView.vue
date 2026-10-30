@@ -81,7 +81,7 @@ const minute = (iso: string | null) => iso?.slice(0, 16).replace("T", " ") ?? ""
 <template>
   <header class="view-head"><h1>Health</h1></header>
 
-  <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
+  <p v-if="failed" class="empty">The server did not answer. Is jobfinder serve running?</p>
   <template v-else-if="health">
     <section>
       <h2>Model</h2>

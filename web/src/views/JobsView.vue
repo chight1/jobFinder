@@ -161,7 +161,7 @@ const withoutSkill = () => {
         </div>
       </header>
 
-      <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
+      <p v-if="failed" class="empty">The server did not answer. Is jobfinder serve running?</p>
       <template v-else-if="list">
         <p v-if="!list.jobs.length" class="empty">No jobs match the filters.</p>
         <JobTile v-for="job in list.jobs" :key="job.id" :job="job" :fresh="fresh.has(job.id)" @changed="changed">

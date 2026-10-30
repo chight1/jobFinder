@@ -32,5 +32,5 @@ export const router = createRouter({
 });
 
 router.afterEach((to) => {
-  document.title = `${to.meta.title} · jobhunt`; // a page may put a more exact title once its data loads
+  document.title = `${to.meta.title} · jobFinder`; // a page may put a more exact title once its data loads
 });

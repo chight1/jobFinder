@@ -10,10 +10,22 @@ from typing import Any
 import pytest
 from httpx import URL
 
-from jobhunt.collectors import BoardGone, Context, Summary, ashby, greenhouse, hn, json_apis, lever, pages, rss, workday
-from jobhunt.collectors.runner import detail_loader
-from jobhunt.discover import board_from_url
-from jobhunt.fetch import Page
+from jobfinder.collectors import (
+    BoardGone,
+    Context,
+    Summary,
+    ashby,
+    greenhouse,
+    hn,
+    json_apis,
+    lever,
+    pages,
+    rss,
+    workday,
+)
+from jobfinder.collectors.runner import detail_loader
+from jobfinder.discover import board_from_url
+from jobfinder.fetch import Page
 
 
 class FakeFetcher:
@@ -313,7 +325,7 @@ def test_feed_title_with_a_prefix_cut_off():
 
 def test_detail_browser_sends_job_pages_through_the_browser():
     assert detail_loader(json_apis, {}) is json_apis
-    assert detail_loader(json_apis, {"detail_browser": True}).__name__ == "jobhunt.collectors.browser"
+    assert detail_loader(json_apis, {"detail_browser": True}).__name__ == "jobfinder.collectors.browser"
 
 
 def test_amazon_date():

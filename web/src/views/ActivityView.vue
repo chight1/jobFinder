@@ -34,7 +34,7 @@ const zone = browserZone();
     <span class="meta">updates every 5 seconds</span>
   </header>
 
-  <p v-if="failed && !activity" class="empty">The server did not answer. Is jobhunt serve running?</p>
+  <p v-if="failed && !activity" class="empty">The server did not answer. Is jobfinder serve running?</p>
   <template v-if="activity">
     <section>
       <h2>Running now</h2>

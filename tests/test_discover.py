@@ -8,8 +8,8 @@ import json
 import httpx
 import pytest
 
-from jobhunt import db, discover
-from jobhunt.fetch import Fetcher, FetchError, NetworkError, Page, SourceBlocked
+from jobfinder import db, discover
+from jobfinder.fetch import Fetcher, FetchError, NetworkError, Page, SourceBlocked
 from tests.test_collectors import FakeFetcher
 
 CDX = "https://index.example/CC-1-index"
