@@ -34,8 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--dry-run", action="store_true", help="print parsed postings, write nothing")
     collect.add_argument("--minutes", type=float, default=240, help="stop starting new pages after this long")
 
-    discover = commands.add_parser("discover", help="find company boards in Common Crawl and the company lists")
-    discover.add_argument("--force", action="store_true", help="re-read the current crawl")
+    discover = commands.add_parser(
+        "discover", help="find company boards in Common Crawl, the Wayback Machine and the company lists")
+    discover.add_argument("--force", action="store_true", help="re-read both URL indexes from the start")
+    discover.add_argument("--ats", help="one hiring system only (lever, greenhouse, ...); skips the company lists")
 
     process = commands.add_parser("process", help="the model worker: works the queue and waits for more")
     process.add_argument("--minutes", type=float, help="stop after this long (default: never)")
@@ -169,7 +171,7 @@ def cmd_discover(cfg: Config, args: argparse.Namespace) -> int:
     from jobhunt.discover import discover
 
     _connect(cfg).close()
-    print(discover(cfg, force=args.force))
+    print(discover(cfg, force=args.force, only=args.ats))
     return 0
 
 

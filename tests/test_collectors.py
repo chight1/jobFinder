@@ -31,7 +31,7 @@ class FakeFetcher:
             return Page(url, 404, "")
         return Page(url, 200, body if isinstance(body, str) else json.dumps(body))
 
-    def get(self, source_id, url, *, kind="html", params=None, headers=None):
+    def get(self, source_id, url, *, kind="html", params=None, headers=None, timeout_s=None, retries=None):
         return self._answer(str(URL(url, params=params)) if params else url)
 
     def post_json(self, source_id, url, body, *, kind="api"):

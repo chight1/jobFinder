@@ -175,10 +175,7 @@ def _run_source(shared: Shared, source: sqlite3.Row) -> Tally:
                 except Exception as exc:  # noqa: BLE001 - one broken board must never end the run
                     log.warning("%s board %s failed: %r", source["id"], board["slug"], exc)
                     board_tally = Tally(errors=1, status=f"stopped: {exc!r}"[:200])
-                tally.add(board_tally)
-                # Any error ends the site for the run. On Workday each board is its own site.
-                if board_tally.status.startswith("stopped") and not own_site:
-                    break
+                tally.add(board_tally)  # a board's own error (a 500, a page that will not parse) skips only it
         else:
             tally = runner.run_source(source)
     except SourceBlocked as exc:

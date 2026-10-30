@@ -34,12 +34,21 @@ Kind = Literal["html", "api"]
 _CHALLENGE_MARKERS = ("just a moment", "cf-chl-", "attention required", "verify you are human", "captcha")
 _CHALLENGE_MAX_CHARS = 50_000
 _MAX_RETRY_AFTER_S = 300.0  # a site asking for a longer wait is treated as a block
-_RETRYABLE = (429, 503)
+_RETRYABLE = (429, 502, 503, 504)
+_PUSHBACK = (429, 503)  # the site asking for fewer requests: still refused after the retries, that is a block
 _RETURNED = (404, 410)  # callers need these: a dead board, a closed posting
 
 
 class FetchError(Exception):
-    """A request failed in a way that affects only this page."""
+    """A request failed in a way that affects only this page. status is the HTTP status, when there was one."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class NetworkError(FetchError):
+    """No answer at all: the connection failed or dropped, or the request timed out."""
 
 
 class SourceBlocked(FetchError):
@@ -104,8 +113,13 @@ class Fetcher:
         kind: Kind = "html",
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        timeout_s: float | None = None,
+        retries: int | None = None,
     ) -> Page:
-        return self._request(source_id, "GET", url, kind=kind, params=params, headers=headers)
+        """timeout_s and retries replace config.toml's for this request: a slow server, or a caller that
+        does its own waiting."""
+        return self._request(source_id, "GET", url, kind=kind, params=params, headers=headers, timeout_s=timeout_s,
+                             retries=retries)
 
     def post_json(self, source_id: str, url: str, body: Any, *, kind: Kind = "api") -> Page:
         return self._request(source_id, "POST", url, kind=kind, json_body=body)
@@ -181,6 +195,8 @@ class Fetcher:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         json_body: Any = None,
+        timeout_s: float | None = None,
+        retries: int | None = None,
     ) -> Page:
         full_url = str(httpx.URL(url, params=params)) if params else url
         cache_path = self._cache_path(source_id, method, full_url, json_body)
@@ -191,20 +207,21 @@ class Fetcher:
         self._check_cap(source_id)
         client = self._client()
         site = self._site(full_url)
-        retries = int(self._cfg["retries"])
+        retries = int(self._cfg["retries"]) if retries is None else retries
         with site.lock:
             for attempt in range(retries + 1):
                 self._wait(site)
                 started = time.monotonic()
                 try:
-                    resp = client.request(method, full_url, headers=headers, json=json_body)
+                    resp = client.request(method, full_url, headers=headers, json=json_body,
+                                          timeout=httpx.USE_CLIENT_DEFAULT if timeout_s is None else timeout_s)
                 except httpx.TransportError as exc:
                     self._log(source_id, full_url, None, 0, started, repr(exc))
                     site.next_at = time.monotonic() + self._gap_s(source_id, kind)
                     if attempt < retries:
                         time.sleep(float(self._cfg["retry_wait_s"]))
                         continue
-                    raise FetchError(f"network error after {retries} retries: {exc!r}") from exc
+                    raise NetworkError(f"network error after {retries} retries: {exc!r}") from exc
 
                 self._log(source_id, full_url, resp.status_code, len(resp.content), started, None)
                 site.next_at = time.monotonic() + self._gap_s(source_id, kind)
@@ -213,13 +230,15 @@ class Fetcher:
                 if status in _RETRYABLE:
                     wait = self._retry_after_s(resp)
                     if wait > _MAX_RETRY_AFTER_S:
-                        raise SourceBlocked(f"HTTP {status}, Retry-After {wait:.0f}s")
+                        raise SourceBlocked(f"HTTP {status}, Retry-After {wait:.0f}s", status)
                     if attempt < retries:
                         time.sleep(wait)
                         continue
-                    raise SourceBlocked(f"HTTP {status} after {retries} retries")
+                    if status in _PUSHBACK:
+                        raise SourceBlocked(f"HTTP {status} after {retries} retries", status)
+                    raise FetchError(f"HTTP {status} after {retries} retries for {full_url}", status)  # a gateway kept failing
                 if status == 403:
-                    raise SourceBlocked("HTTP 403")
+                    raise SourceBlocked("HTTP 403", status)
                 if "html" in resp.headers.get("content-type", "") and self.looks_like_challenge(resp.text):
                     raise SourceBlocked("challenge page")
                 if resp.is_success or status == 304 or status in _RETURNED:
