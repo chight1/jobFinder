@@ -173,6 +173,7 @@ def _wayback_boards(conn: sqlite3.Connection, fetcher: Fetcher, ats: str, *, for
         done, next_page = f"wayback_read:{ats}", f"wayback_page:{ats}"
         if force:
             db.set_setting(conn, next_page, "0")
+            db.set_setting(conn, done, "")  # a forced read that stops partway resumes like any other
         elif db.get_setting(conn, done):
             log.info("Wayback index already read for %s", ats)
             continue

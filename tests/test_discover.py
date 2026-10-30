@@ -111,6 +111,29 @@ def test_the_wayback_index_resumes_at_the_page_it_stopped_on(cfg, conn):
     assert discover._wayback_boards(conn, fetcher, "lever", force=False) == (0, 0)  # read once
 
 
+def test_a_stopped_forced_reread_resumes_on_the_next_run(cfg, conn):
+    query = {"url": "jobs.lever.co/", "matchType": "prefix"}
+    rows = query | {"fl": "original", "collapse": "urlkey",
+                    "filter": ["statuscode:200", f"original:{discover.WAYBACK_QUERIES[0][2]}"]}
+    page = [str(httpx.URL(discover.WAYBACK_CDX, params=rows | {"page": n})) for n in range(3)]
+    fetcher = StoppingFetcher({
+        str(httpx.URL(discover.WAYBACK_CDX, params=query | {"showNumPages": "true"})): "3",
+        page[0]: "https://jobs.lever.co/acme\n",
+        page[1]: "https://jobs.lever.co/vrchat\n",
+        page[2]: "https://jobs.lever.co/globex\n",
+    }, failing=set())
+    discover._wayback_boards(conn, fetcher, "lever", force=False)
+    assert db.get_setting(conn, "wayback_read:lever")
+
+    fetcher.failing = {page[1]}
+    discover._wayback_boards(conn, fetcher, "lever", force=True)  # stops at page 1
+    assert db.get_setting(conn, "wayback_page:lever") == "1"
+
+    fetcher.failing = set()
+    assert discover._wayback_boards(conn, fetcher, "lever", force=False) == (2, 0)  # pages 1 and 2, no new boards
+    assert db.get_setting(conn, "wayback_read:lever")
+
+
 class BusyFetcher(CrawlFetcher):
     """Answers busy (503, a dropped connection, 504, in turn) `busy` times, then with the page."""
 
