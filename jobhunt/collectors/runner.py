@@ -333,7 +333,7 @@ class Runner:
             (
                 source_id, board_id, summary.external_id, url, summary.title, summary.company,
                 summary.location, summary.posted_at, description,
-                hashlib.sha1(description.encode("utf-8")).hexdigest() if description else None,
+                hashlib.sha256(description.encode("utf-8")).hexdigest() if description else None,
                 db.dumps({k: v for k, v in summary.fields.items() if v not in (None, "")}),
                 now, now, job_id,
             ),
@@ -501,6 +501,6 @@ def fill_detail(conn: sqlite3.Connection, fetcher: Fetcher, sighting_id: int) ->
     description = filled.description or ""
     conn.execute(
         "UPDATE sightings SET description = ?, desc_hash = ?, source_fields = ? WHERE id = ?",
-        (description, hashlib.sha1(description.encode("utf-8")).hexdigest() if description else None,
+        (description, hashlib.sha256(description.encode("utf-8")).hexdigest() if description else None,
          db.dumps({k: v for k, v in filled.fields.items() if v not in (None, "")}), sighting_id),
     )
