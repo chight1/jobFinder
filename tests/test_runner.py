@@ -7,11 +7,11 @@ import time
 
 import pytest
 
-from jobhunt import db, nightly
-from jobhunt.collectors import Summary
-from jobhunt.collectors.runner import Runner, Shared
-from jobhunt.dedupe import AgencyIndex
-from jobhunt.fetch import FetchError, SourceBlocked
+from jobfinder import db, nightly
+from jobfinder.collectors import Summary
+from jobfinder.collectors.runner import Runner, Shared
+from jobfinder.dedupe import AgencyIndex
+from jobfinder.fetch import FetchError, SourceBlocked
 from tests.conftest import ROOT
 from tests.test_collectors import FakeFetcher
 

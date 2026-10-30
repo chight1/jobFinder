@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobhunt import score
+from jobfinder import score
 
 PAY_CFG = {"full_usd": 120_000, "zero_usd": 40_000, "at_floor": 0.7, "unknown": 0.4}
 

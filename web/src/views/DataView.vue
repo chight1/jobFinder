@@ -24,7 +24,7 @@ async function load() {
     problem.value = data ? "" : response.status === 404 ? `There is no table named ${table.value}.` : "The server could not load it.";
     if (data) result.value = data;
   } catch {
-    problem.value = "The server did not answer. Is jobhunt serve running?";
+    problem.value = "The server did not answer. Is jobfinder serve running?";
   }
 }
 watch([table, q, page], load, { immediate: true });

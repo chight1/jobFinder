@@ -6,7 +6,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from jobhunt import llm
+from jobfinder import llm
 
 POSTING = """
 <h2>About us</h2><p>Founded in 1999, we love culture.</p>

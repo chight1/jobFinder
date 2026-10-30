@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from jobhunt import config as config_module
-from jobhunt import db
-from jobhunt.config import Config, Profile
-from jobhunt.rules import Gazetteer, Place
-from jobhunt.web.app import create_app
+from jobfinder import config as config_module
+from jobfinder import db
+from jobfinder.config import Config, Profile
+from jobfinder.rules import Gazetteer, Place
+from jobfinder.web.app import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 

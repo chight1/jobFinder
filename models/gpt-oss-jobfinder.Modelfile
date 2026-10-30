@@ -1,0 +1,5 @@
+# gpt-oss:20b with a context window big enough for jobfinder's prompts.
+# Ollama's default (4096 tokens) cuts off longer postings and packet prompts silently.
+# Register with: ollama create gpt-oss-jobfinder -f models/gpt-oss-jobfinder.Modelfile
+FROM gpt-oss:20b
+PARAMETER num_ctx 8192

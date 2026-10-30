@@ -452,7 +452,7 @@ export interface components {
             feed: components["schemas"]["Event"][];
             /**
              * Log
-             * @description The last lines of jobhunt.log
+             * @description The last lines of jobfinder.log
              */
             log: string[];
         };

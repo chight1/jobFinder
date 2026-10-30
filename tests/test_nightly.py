@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from jobhunt import db, nightly
-from jobhunt.nightly import _model_lock, process
+from jobfinder import db, nightly
+from jobfinder.nightly import _model_lock, process
 
 
 class Clock:

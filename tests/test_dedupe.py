@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobhunt import dedupe
+from jobfinder import dedupe
 
 
 @pytest.mark.parametrize(

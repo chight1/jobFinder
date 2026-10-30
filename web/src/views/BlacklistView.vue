@@ -39,7 +39,7 @@ const day = (iso: string) => iso.slice(0, 10);
 <template>
   <header class="view-head"><h1>Blacklist</h1></header>
 
-  <p v-if="failed" class="empty">The server did not answer. Is jobhunt serve running?</p>
+  <p v-if="failed" class="empty">The server did not answer. Is jobfinder serve running?</p>
   <template v-else-if="entries">
     <p v-if="!entries.length" class="empty">No employers blacklisted. A job card's Blacklist button adds one.</p>
     <div v-else class="table-wrap">

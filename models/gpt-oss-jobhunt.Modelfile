@@ -1,5 +1,0 @@
-# gpt-oss:20b with a context window big enough for jobhunt's prompts.
-# Ollama's default (4096 tokens) cuts off longer postings and packet prompts silently.
-# Register with: ollama create gpt-oss-jobhunt -f models/gpt-oss-jobhunt.Modelfile
-FROM gpt-oss:20b
-PARAMETER num_ctx 8192
