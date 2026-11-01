@@ -24,8 +24,8 @@ sites) and the candidate's location (Japan) are built into the code.
    cover letter, screening answers, skill gaps) for each job marked to apply.
 
 New company boards are found in the Common Crawl and Wayback Machine URL indexes and checked once before the
-nightly run fetches them. Each night 37 sources are collected through six collector types (HTML pages, RSS
-feeds, a headless browser, JSON APIs, Hacker News and Lever): 28 job boards, 6 recruiter sites, 2 company career
+nightly run fetches them. Each night 36 sources are collected through six collector types (HTML pages, RSS
+feeds, a headless browser, JSON APIs, Hacker News and Lever): 27 job boards, 6 recruiter sites, 2 company career
 sites, and Lever's public API, which covers over 1,600 live company boards found so far. Collectors for
 Greenhouse, Ashby, Workday, Workable and SmartRecruiters are also built and off by default in `sources.csv`.
 
