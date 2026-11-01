@@ -1,6 +1,6 @@
 # jobFinder Pipeline
 
-Oct 7, 2026 
+Oct 7, 2026
 
 A Python program collects job postings every night, cuts the ones the candidate can't take using plain code and a local language model, scores the rest with a fixed formula, and serves the sorted list as a local web page. Each job is processed once, and nothing in it is company-specific.
 
@@ -19,12 +19,12 @@ Each job goes down this path once, the night it first appears. Code rules cut th
 
 ## Components and tech
 
-Python 3.12, one package named jobfinder, one SQLite file and one command-line entry point. Python fits because its scraping libraries are mature and the candidate already knows it.
+Python 3.12, one package named jobfinder, one SQLite file and one command-line entry point. Python fits because its scraping libraries are mature.
 
 | Module | Job | Libraries |
 | --- | --- | --- |
 | cli | Commands: init, nightly, collect, discover, process, rescore, reextract, packet, serve | standard library |
-| config | Reads config.toml (settings, weights, schedule) and profile.toml (the candidate's skills, pay floor, commutable cities) | tomllib |
+| config | Reads config.toml (settings, weights, schedule) and profile.toml (the candidate's skills, pay floor and commutable cities) | tomllib |
 | db | Schema, migrations, queries. SQLite in WAL mode (write-ahead logging), so the list page can read while the nightly run writes | sqlite3 |
 | fetch | The only door to the network: per-site rate limits, retries, backoff, raw-page cache | httpx |
 | collectors | One module per collector type, all with the same interface | httpx, selectolax, feedparser |
@@ -65,13 +65,13 @@ One SQLite file. A **sighting** is one place a posting was seen; a **job** is th
 
 **Job stage** moves one way: new → code_removed, or queued → extracted → removed, kept or japanese. japanese is a job that passes every rule but requires Japanese: the backup list for when the English jobs run out. A button at the end of each card's buttons moves a job to the other list by hand ("Japanese" on a main-list job, "Not Japanese" on a Japanese one) (japanese_override), which wins over the model's answer and survives a rescore. A failed extraction is extract_failed and stays visible.
 
-**Job status** is the candidate's: none, apply, applied, interviewing, rejected, ghosted, not_interested.
+**Job status** is set by hand: none, apply, applied, interviewing, rejected, ghosted, not_interested.
 
 **Indexes:** sightings(url) unique; sightings(source_id, external_id); jobs(stage, prescore) for the model queue; jobs(score) for the list; companies(ats, slug) unique.
 
 ## The nightly run
 
-The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Windows) starts "jobfinder nightly" at 01:00. The nightly run only fetches; the model worker is a separate process that is always on. The two share the database and never call each other: fetching queues jobs, and the worker takes them.
+Task Scheduler starts "jobfinder nightly" at 01:00. The nightly run only fetches; the model worker is a separate process that is always on. The two share the database and never call each other: fetching queues jobs, and the worker takes them.
 
 **Fetching, 01:00 to 05:00.** At 05:00 it stops; each source saves its cursor and resumes there the next night.
 
@@ -85,7 +85,7 @@ The operating system's scheduler (cron on Mac or Linux, Task Scheduler on Window
 
 **Model worker, always on.** "jobfinder process" is started at logon by its own scheduled task, hidden, and never stops by itself. It always takes the highest-priority work first:
 
-1. Packets for jobs the candidate marked apply
+1. Packets for jobs marked apply
 2. Borderline duplicate pairs
 3. Extraction of queued jobs, highest prescore first
 
@@ -118,7 +118,7 @@ Every request goes through the fetch module, so these rules hold everywhere.
 1. A 429 ("too many requests") or a 503: wait for the Retry-After header, or 60 s, and retry at most twice.
    A 502 or 504 (a gateway that timed out) is retried the same way; still failing, it is an ordinary error (6), not a block.
 2. Still failing, a 403 ("forbidden"), or a challenge page (detected by markers such as "captcha" or "Just a moment" in the body): stop that source for the night. Set backoff_until to the next night, double its gap (up to 30 s), and add 1 to fail_streak.
-3. A fail_streak of 3 disables the source and flags it on the health view until the candidate turns it back on.
+3. A fail_streak of 3 disables the source and flags it on the health view until it is turned back on.
 4. A clean night resets fail_streak, and the gap halves back toward its default.
 5. No rotating addresses or other ways around a block. A blocked source waits.
 6. Any other error (a bad status, a timeout, a page that will not parse): log it and stop that site for the rest of the run, with no backoff. On a hiring system the site is the one company board: the run goes on to the next board, and only pushback (step 2) stops the whole system, except on Workday, where each board is its own site and a block stops only that board. A posting that is simply gone (404) is not an error.
@@ -293,20 +293,20 @@ score = 100 × (0.40 × pay + 0.20 × location + 0.20 × stack + 0.10 × seniori
 
 | Part | Scores 1.0 | In between | Scores low | Unknown |
 | --- | --- | --- | --- | --- |
-| Pay (yearly, US dollars) | $120k and up | 0.7 at the $100k floor; straight lines between the points | 0 at $40k and below | 0.4 |
+| Pay (yearly, US dollars) | $120k and up | 0.7 at the pay floor (pay_floor_usd in profile.toml); straight lines between the points | 0 at $40k and below | 0.4 |
 | Location | remote and open to Japan, or in a commutable Kansai city | 0.5 Tokyo hybrid, 2 office days or fewer | 0.3 Tokyo hybrid, 3 or more | 0.6 |
 | Stack | primary language at level 3 in profile.toml | 0.8 at level 2, 0.5 at level 1 | 0.3 not in the profile | 0.6 |
 | Seniority | years asked at or under the candidate's years | minus 0.2 per extra year asked | 0.2 for staff level and above | 0.7 |
 | Balance | overlap hours inside 08:00–20:00 Japan time | 0.5 if overlap reaches 20:00–23:00 | 0.1 if any overlap falls 23:00–07:00 | 0.6 |
 
-- **Pay conversion:** monthly × 12, hourly × 2,000, then a currency table in config.toml that the candidate updates by hand. A range uses its midpoint.
+- **Pay conversion:** monthly × 12, hourly × 2,000, then a currency table in config.toml, updated by hand. A range uses its midpoint.
 - **Balance adjustments:** heavy overtime multiplies balance by 0.5, on-call duty by 0.8.
 - **Skill levels** in profile.toml: 3 is strong, 2 is working, 1 is "could pick it up". The candidate sets them.
 - **Reason line,** written by code from the parts: work mode and place · pay in the posting's currency and in dollars · primary language and the candidate's level · years asked against the candidate's · overlap hours in Japan time.
 
 **Badges**
 
-- **unicorn:** open to Japan, Japanese not required, payroll or employer of record, remote or Kansai-based, pay at or above $100k, primary language at level 1 or higher. A label only; the score still sets the order.
+- **unicorn:** open to Japan, Japanese not required, payroll or employer of record, remote or Kansai-based, pay at or above the pay floor, primary language at level 1 or higher. A label only; the score still sets the order.
 - **check:** a removal-relevant fact is unclear, or extraction failed.
 - **dispatch:** a payroll job placed at a client's site.
 
@@ -314,13 +314,13 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 
 ## The list page
 
-"jobfinder serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. The jobs table adds jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to. The browser also remembers the jobs table's last filters, so a bare /jobs (the Jobs tab) opens where the candidate left off.
+"jobfinder serve" runs a local web page at localhost:8765: a Vue 3 + TypeScript app in web/, built with Vite (`npm run build`), over a JSON API under /api. The API is FastAPI routes with Pydantic response models, documented at /api/docs. The app's TypeScript types are generated from that API's OpenAPI schema (`npm run types`), so the two cannot drift apart. The API reads the database directly, so the page is always current. The jobs table adds jobs live: every 10 seconds the page asks the API for jobs listed since its last answer and slots them in by score, highlighted briefly. Filters, searches and pages live in the URL, so a view survives a reload and can be linked to. The browser also remembers the jobs table's last filters, so a bare /jobs (the Jobs tab) opens where the last visit left off.
 | View | Shows |
 | --- | --- |
 | Jobs | every job in one table, best first (at most 500 at a time), narrowed by filters; see The jobs table |
 | Health | the model worker's state with Pause, Stop and Play; per-source status (see Health and errors); and the last backup with a "Back up now" button |
 | Activity | what each running command and worker is doing right now, queue progress, the latest web requests and model calls mixed in time order, and the end of the log; refreshes every 5 seconds |
-| Skills | every skill the kept jobs name, most common first, with your level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
+| Skills | every skill the kept jobs name, most common first, with the candidate's level beside each; Japanese jobs are left out unless switched on; changing a level (or adding a skill) saves it to profile.toml with its comments kept and rescores the jobs; the model worker reads the skills again before each job |
 | Data | every table, read-only: newest rows first, 50 a page, with a search across all columns |
 | Job (#id) | one job in full: state, removal rule and quote, score parts, every extracted fact and its evidence, every place it was seen, model calls, duplicate results, and the description |
 | Packet (#id) | the application packet drafted for a job marked apply |
@@ -330,12 +330,12 @@ There is no model ranking on top of the score. A pairwise comparator (the model 
 | Filter | Options (on by default in bold) |
 | --- | --- |
 | Rating | **green**, **yellow**, **red**, **not rated**, shown as dots like the card's rating dots |
-| Japanese | Japanese, **not Japanese**: the model's answer, or the candidate's move by hand |
+| Japanese | Japanese, **not Japanese**: the model's answer, or a move by hand |
 | Status | **no status**, to apply, applied, interviewing, rejected, ghosted, drop |
 | Removed | **kept**, then one option per removal rule |
-| Source | **every source that has given us a job**; a job shows while any source it was seen on is on |
+| Source | **every source that has supplied a job**; a job shows while any source it was seen on is on |
 
-A plain /jobs is the open list, best first; "Recently changed" (?sort=changed) puts the jobs the candidate changed by hand last at the top instead (status, rating, list move, restore, blacklist), so one marked by mistake is easy to find. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
+A plain /jobs is the open list, best first; "Recently changed" (?sort=changed) puts the jobs changed by hand most recently at the top instead (status, rating, list move, restore, blacklist), so one marked by mistake is easy to find. A skill chip, or a skill in the Skills table, narrows the table to the jobs asking for that skill (?skill=go). Removed jobs show their rule and quote, and a Restore button.
 
 Workers report what they are doing in an activity table as they go, with their process id. A note whose process has exited (killed, or out of memory) is left off the Activity page; a live one left untouched for 30 minutes is flagged, since it may be stuck.
 
@@ -361,7 +361,7 @@ Each job marked apply gets a packet in the next model window, or right away with
 **Rules for the model's text:**
 
 - English only.
-- Never name the candidate's previous project or the agency it served; call it a large-scale federal modernization program.
+- Never use a name from forbidden_names in profile.toml; use the profile's stand_in description instead.
 - Use only facts from the resume and profile.toml. Nothing invented.
 
 **Output:** a packets row plus packets/JOB_ID.md, linked from the job's row on the list page.
@@ -399,7 +399,7 @@ Each step ends with something that runs.
 - Each collector has saved sample responses in tests/fixtures and a parser test against them.
 - "jobfinder collect --source NAME --dry-run" prints parsed postings without writing anything.
 - The code rules have a table test: location strings, titles and texts, each with its expected verdict.
-- A set of 50 postings checks extraction accuracy whenever the prompt or the model changes. Claude Code labels them during the build: "jobfinder evalextract --export 50" takes 50 postings from the first collection, Claude Code writes the correct facts for each by hand into tests/extraction_set, and the candidate reads the labels over. "jobfinder evalextract" runs extraction on all 50 and reports the share right per field.
+- A set of 50 postings checks extraction accuracy whenever the prompt or the model changes. Claude Code labels them during the build: "jobfinder evalextract --export 50" takes 50 postings from the first collection, Claude Code writes the correct facts for each by hand into tests/extraction_set, and a person reviews the labels. "jobfinder evalextract" runs extraction on all 50 and reports the share right per field.
 
 ## Open items
 
