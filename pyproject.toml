@@ -1,11 +1,13 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]  # 77 reads the SPDX license string
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "jobfinder"
 version = "0.1.0"
 description = "Nightly job collection, filtering and ranking for one person's search"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
