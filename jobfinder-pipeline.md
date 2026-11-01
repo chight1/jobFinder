@@ -6,7 +6,7 @@ A Python program collects job postings every night, cuts the ones the candidate 
 
 **Pipeline at a glance**
 
-1. Collect, nightly: new postings from 37 sources and every company board found
+1. Collect, nightly: new postings from 36 sources and every company board found
 2. Dedupe: one job, many sightings
 3. Code rules: clear cases the candidate can't take go to the removed pile
 4. Extract with the local model: facts only, once per job
@@ -146,7 +146,7 @@ The runner compares the returned ids with the database: new ids become sightings
 | RSS feeds | GET the feed | none | when the feed's text is under 500 characters, unless the source is feed-only (startup.jobs, whose job pages have a checkbox challenge) |
 | JSON APIs (Himalayas, Jobicy, Remotive, RemoteOK, Working Nomads, Amazon, Tech in Asia) | GET with the API's Japan, Asia or worldwide filter where it has one; Tech in Asia POSTs an Algolia search | the API's own paging, newest first | rarely |
 | Hacker News | hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring, then /items/ID for the month's thread | none | none: each comment is a posting |
-| Japan boards (TokyoDev, Japan Dev, Daijob, GaijinPot) | GET list pages, newest first, IT categories | page numbers | GET the job page |
+| Japan boards (TokyoDev, Japan Dev, Daijob) | GET list pages, newest first, IT categories | page numbers | GET the job page |
 | Browser sites (CareerCross, Wellfound) | Playwright loads list pages | until no new ids | the job page |
 
 **Stop rule for newest-first lists:** stop at the first page where every id is already known.
@@ -417,7 +417,7 @@ Every source the collectors cover. sources.csv is built from this table; company
 | Japan Dev | html | https://japan-dev.com/jobs | Server-rendered HTML. No RSS or API |
 | Daijob | html | https://www.daijob.com/en/ | Plain HTTP pages (jpjobs package already scrapes it) |
 | CareerCross | browser | https://www.careercross.com/en | Public pages with anti-bot |
-| GaijinPot Jobs | html | https://jobs.gaijinpot.com | Public pages. robots.txt blocks crawlers; jpjobs scrapes it over HTTP |
+| GaijinPot Jobs | html | https://jobs.gaijinpot.com | Dropped: robots.txt disallows every crawler except named search engines |
 | Wellfound (Japan) | browser | https://wellfound.com/location/japan | JavaScript-heavy pages |
 | startup.jobs | rss | https://startup.jobs/locations/japan | RSS without key: startup.jobs/feeds/jobs?role=engineering. Feed-only: job pages have a checkbox challenge. (The API needs a free key, 20 req/min) |
 | Jobgether (Japan) | html | https://jobgether.com/remote-jobs/japan/it-development | Public pages |
