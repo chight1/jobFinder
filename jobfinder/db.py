@@ -178,7 +178,7 @@ MIGRATIONS: list[str] = [
         since TEXT NOT NULL
     );
     """,
-    # How much the candidate likes a job, set from its tile; separate from status, so rated jobs stay listed.
+    # The user's rating of a job, set from its tile; separate from status, so rated jobs stay listed.
     """
     ALTER TABLE jobs ADD COLUMN rating TEXT;  -- green, yellow, red, or NULL
     """,
@@ -202,7 +202,7 @@ MIGRATIONS: list[str] = [
     DROP TABLE comparisons;
     """,
     """
-    -- The candidate moves a job between the Japanese list and the main one by hand: 1 Japanese, 0 not, NULL the
+    -- A job moved between the Japanese list and the main one by hand: 1 Japanese, 0 not, NULL the
     -- model's answer decides. A job restored from the old "Requires Japanese" removal was a manual "not".
     ALTER TABLE jobs ADD COLUMN japanese_override INTEGER;
     UPDATE jobs SET japanese_override = 0,
@@ -222,7 +222,7 @@ MIGRATIONS: list[str] = [
     ALTER TABLE activity ADD COLUMN pid INTEGER;
     """,
     """
-    -- Employers the candidate never wants to see. Their jobs are code-removed ("blacklisted"), now and in later runs.
+    -- Employers whose jobs are never shown. Their jobs are code-removed ("blacklisted"), now and in later runs.
     CREATE TABLE blacklist (
         company_norm TEXT PRIMARY KEY,   -- dedupe.company_norm: lower case, legal suffixes gone
         company TEXT NOT NULL,           -- the name as a posting gave it, for the list page
@@ -230,7 +230,7 @@ MIGRATIONS: list[str] = [
     );
     """,
     """
-    -- When the candidate last changed a job by hand (status, rating, list, restore, blacklist), for the
+    -- When a job was last changed by hand (status, rating, list, restore, blacklist), for the
     -- "Recently changed" sort. Jobs changed before this start from their status's time or their blacklisting.
     ALTER TABLE jobs ADD COLUMN changed_at TEXT;
     UPDATE jobs SET changed_at = status_at WHERE status_at IS NOT NULL;

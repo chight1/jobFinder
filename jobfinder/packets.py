@@ -1,4 +1,4 @@
-"""Application packets for jobs the candidate marks apply. Every application is submitted by hand.
+"""Application packets for jobs marked apply. Every application is submitted by hand.
 
 Resume choice and the gap list are code; the cover letter and screening answers are
 written by the model from the posting, the job's facts, the resume and profile.toml.

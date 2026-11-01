@@ -1,4 +1,4 @@
-"""Employers the candidate never wants to see. A blacklisted employer's jobs are code-removed with the rule
+"""Employers whose jobs are never shown. A blacklisted employer's jobs are code-removed with the rule
 "blacklisted": the ones stored now, and every one a later run finds (the runner checks the list).
 
 Taking an employer off brings its jobs back where they were: a job the model has read is judged

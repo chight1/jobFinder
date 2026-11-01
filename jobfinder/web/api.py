@@ -120,7 +120,7 @@ class JobCard(BaseModel):
 class JobsQuery(filters.FilterQuery):  # one model for every query parameter, as FastAPI wants
     skill: str | None = Field(None, description="Only the jobs asking for this skill, under any spelling")
     after: str | None = Field(None, description="An earlier reply's `now`: only the jobs listed since")
-    sort: Literal["score", "changed"] = Field("score", description="Best first, or the jobs the candidate changed last first")
+    sort: Literal["score", "changed"] = Field("score", description="Best first, or the most recently changed first")
 
 
 class JobList(BaseModel):
@@ -684,7 +684,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
 
     @api.post("/jobs/{job_id}/rating")
     def set_rating(job_id: int, body: RatingChange, conn: Conn) -> RatingSaved:
-        """Mark how much the candidate likes a job. Picking the current color again clears it."""
+        """Rate a job. Picking the current color again clears it."""
         row = conn.execute("SELECT rating FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if row is None:
             raise HTTPException(404, f"no job #{job_id}")

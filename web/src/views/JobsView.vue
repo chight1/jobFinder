@@ -12,7 +12,7 @@ import { insertByScore, localToday, statusName } from "../jobs";
 
 // The jobs table: every job, narrowed by filters, best first. The API holds the filters and says which
 // options are on; the choice lives in the query string, and this browser remembers the last one, so a bare
-// /jobs (the Jobs tab) opens where the candidate left off. The page adds jobs as the model finishes them, and asks
+// /jobs (the Jobs tab) opens where the last visit left off. The page adds jobs as the model finishes them, and asks
 // again after a button changes a job, since the job may no longer pass the filters; the undo bar then
 // offers to take the change back. The list is best first, or the jobs changed last first.
 const route = useRoute();
