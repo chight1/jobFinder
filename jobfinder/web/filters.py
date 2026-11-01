@@ -41,7 +41,7 @@ class Filter:
         return self.options(conn) if callable(self.options) else self.options
 
 
-# The model's answer, unless the candidate moved the job by hand. 0 for a job without facts.
+# The model's answer, unless the job was moved by hand. 0 for a job without facts.
 NEEDS_JAPANESE = "COALESCE(j.japanese_override, json_extract(j.facts, '$.japanese') = 'required', 0)"
 REMOVED = "j.stage IN ('removed', 'code_removed')"
 

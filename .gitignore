@@ -15,5 +15,5 @@ data/
 packets/
 profile/resumes/
 
-# the candidate's own facts: skills, years, pay floor
+# The candidate's own facts: skills, years, pay floor
 profile.toml

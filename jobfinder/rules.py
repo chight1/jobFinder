@@ -453,7 +453,7 @@ def fact_rules(
 def needs_japanese(facts: dict[str, Any], override: bool | None = None) -> bool:
     """Japanese is mandatory, so the job goes to the Japanese list instead of the main one. Asked only
     after fact_rules found nothing, so that list holds jobs that are targets except for the language.
-    override is the candidate moving the job by hand, which wins over the model's answer."""
+    override is the job moved by hand, which wins over the model's answer."""
     return override if override is not None else facts.get("japanese") == "required"
 
 

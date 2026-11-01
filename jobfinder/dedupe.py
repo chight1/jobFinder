@@ -194,7 +194,7 @@ def merge_jobs(conn: sqlite3.Connection, keep: int, drop: int) -> None:
     with db.transaction(conn):
         conn.execute("UPDATE sightings SET job_id = ? WHERE job_id = ?", (keep, drop))
         dropped = conn.execute("SELECT status, status_at, follow_up_on FROM jobs WHERE id = ?", (drop,)).fetchone()
-        if dropped and dropped["status"] != "none":  # keep anything the candidate already did with it
+        if dropped and dropped["status"] != "none":  # keep any status already set on it
             conn.execute(
                 "UPDATE jobs SET status = ?, status_at = ?, follow_up_on = ? WHERE id = ? AND status = 'none'",
                 (dropped["status"], dropped["status_at"], dropped["follow_up_on"], keep),

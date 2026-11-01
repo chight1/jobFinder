@@ -283,7 +283,7 @@ export interface paths {
         put?: never;
         /**
          * Set Rating
-         * @description Mark how much the candidate likes a job. Picking the current color again clears it.
+         * @description Rate a job. Picking the current color again clears it.
          */
         post: operations["set_rating_jobs__job_id__rating_post"];
         delete?: never;
@@ -1252,7 +1252,7 @@ export interface operations {
                 skill?: string | null;
                 /** @description An earlier reply's `now`: only the jobs listed since */
                 after?: string | null;
-                /** @description Best first, or the jobs the candidate changed last first */
+                /** @description Best first, or the most recently changed first */
                 sort?: "score" | "changed";
             };
             header?: never;
