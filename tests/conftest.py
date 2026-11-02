@@ -41,7 +41,7 @@ def gaz() -> Gazetteer:
 def profile() -> Profile:
     return Profile(
         years_experience=5,
-        pay_floor_usd=70_000,
+        pay_floor_usd=100_000,
         commutable_cities=frozenset({"osaka", "kyoto"}),
         skills={"javascript": 3, "react": 3, "java": 2, "python": 1},
         forbidden_names=("Project Orion",),
@@ -54,7 +54,7 @@ def cfg(tmp_path: Path, profile: Profile) -> Config:
     """The repository's config.toml with a test profile and a temporary data folder."""
     profile_path = tmp_path / "profile.toml"  # the same skills as the profile fixture, so reloads change nothing
     profile_path.write_text(
-        "years_experience = 5\npay_floor_usd = 70000\n"
+        "years_experience = 5\npay_floor_usd = 100000\n"
         "[skills]\njavascript = 3  # keep this comment\nreact = 3\njava = 2\npython = 1\n", encoding="utf-8"
     )
     loaded = config_module.load(ROOT, profile_path)
