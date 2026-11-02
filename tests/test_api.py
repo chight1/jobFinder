@@ -54,11 +54,11 @@ def test_a_job_as_a_tile(client):
 
 
 def test_a_card_has_pay_in_dollars_and_years_against_yours(client, conn):
-    conn.execute("""UPDATE jobs SET facts = json_set(facts, '$.pay_min', 66000, '$.pay_max', 100000,
+    conn.execute("""UPDATE jobs SET facts = json_set(facts, '$.pay_min', 110000, '$.pay_max', 140000,
                     '$.pay_currency', 'USD', '$.pay_period', 'year', '$.years_required', 6,
                     '$.primary_language', 'JavaScript') WHERE id = 1""")
     job = client.get("/api/jobs").json()["jobs"][0]
-    assert job["pay_usd"] == "$66k–$100k"
+    assert job["pay_usd"] == "$110k–$140k"
     assert job["years_asked"] == 6 and job["years_over"]  # the test profile has 5 years
     assert job["language_level"] == 3
 
