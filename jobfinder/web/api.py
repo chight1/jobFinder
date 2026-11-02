@@ -95,7 +95,7 @@ class JobCard(BaseModel):
     company: str
     work_mode: str | None
     place: str = Field(description="The office city; else, for a job that is not remote, the posting's location")
-    pay_usd: str | None = Field(description="Yearly pay in dollars, e.g. '$66k–$100k'; null when not listed")
+    pay_usd: str | None = Field(description="Yearly pay in dollars, e.g. '$110k–$140k'; null when not listed")
     pay: str = Field(description="In the posting's currency and in dollars, e.g. '9,000,000 JPY/year ($60k)'")
     primary_language: str | None
     language_level: int = Field(description="Your level in the primary language; 0 when not in your profile")
@@ -438,7 +438,7 @@ def create_api(cfg: Config, gazetteer: Callable[[], Gazetteer]) -> FastAPI:
     Conn = Annotated[sqlite3.Connection, Depends(connection)]
 
     def pay_range_usd(facts: dict[str, Any]) -> str | None:
-        """Yearly pay in dollars, rounded to thousands: '$66k–$100k', or '$73k' for one figure."""
+        """Yearly pay in dollars, rounded to thousands: '$110k–$140k', or '$125k' for one figure."""
         ends = [score.annual_usd(v, None, facts.get("pay_currency"), facts.get("pay_period"), cfg.currency)
                 for v in (facts.get("pay_min"), facts.get("pay_max"))]
         thousands = sorted({round(v / 1000) for v in ends if v is not None})

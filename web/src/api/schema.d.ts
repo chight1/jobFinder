@@ -634,7 +634,7 @@ export interface components {
             place: string;
             /**
              * Pay Usd
-             * @description Yearly pay in dollars, e.g. '$66k–$100k'; null when not listed
+             * @description Yearly pay in dollars, e.g. '$110k–$140k'; null when not listed
              */
             pay_usd: string | null;
             /**

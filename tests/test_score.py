@@ -9,7 +9,7 @@ PAY_CFG = {"full_usd": 120_000, "zero_usd": 40_000, "at_floor": 0.7, "unknown": 
 
 @pytest.mark.parametrize(
     ("usd", "part"),
-    [(150_000, 1.0), (120_000, 1.0), (100_000, 0.85), (100_000, 0.7), (60_000, 0.35), (40_000, 0.0), (None, 0.4)],
+    [(150_000, 1.0), (120_000, 1.0), (95_000, 0.85), (70_000, 0.7), (55_000, 0.35), (40_000, 0.0), (None, 0.4)],
 )
 def test_pay_part(usd, part, profile):
     assert score._pay_part(usd, profile, PAY_CFG) == pytest.approx(part)
